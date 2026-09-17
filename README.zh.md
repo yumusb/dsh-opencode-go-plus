@@ -121,6 +121,7 @@ dsh plugin --profile web add "$PWD"
 | `modelSource` | `catalog` | `catalog` 提供目录里的全部模型，`selected` 只提供 `models` 里的 |
 | `retries` | `3` | 瞬时失败重试几次（聊天请求也用这个） |
 | `timeoutMs` | `15000` | 读目录和拉网关列表的单次超时 |
+| `streamTimeoutMs` | `300000` | **聊天**请求的单次超时。必须显式设置：否则 Anthropic SDK 会用自己 10 分钟的默认值，连接卡住时整轮就一直挂着，而不是及时失败进入重试 |
 | `defaultContextWindow` | `262144` | 目录没写容量时用这个上下文窗口 |
 | `defaultMaxTokens` | `32768` | 每次**请求**要多少输出，不是模型能力 |
 | `models` | `[]` | 启用清单，含义看 `modelSource` |
@@ -178,6 +179,7 @@ dsh plugin --profile web add "$PWD"
 - **「设置 → 模型」里为什么没有它？** 那个页面只认它自己写死的两种布局（`llm-deepseek`、`llm-pi-ai`），别的插件一律只显示一句「请编辑 settings.yaml」，一个可编辑的字段都不给。硬塞进去只会多一条点不动的死条目，所以本插件不去注册。配置都用插件卡片——聊天里的模型选择器读的是适配器注册表，跟那个页面没关系，什么都不缺。
 - **模型报 "has no known wire protocol"。** 它存下来的条目里没有 `api`，当时目录又连不上。联网时在卡片里启用一次（会记下协议），或者直接给这条加上 `api`。
 - **`Invalid API key` / 401。** key 不对，或者订阅过期了。用卡片上的测试连接确认。
+- **某一轮报 "Connection error." / `PI_AI_ERROR`。** 提供方根本没回话——连接被断开，或反代卡住。这类会被判为 `TRANSPORT` 并按 `retries` 重试；`streamTimeoutMs` 限制单次尝试最多挂多久。
 - **偶尔 503。** 网关上游池子时不时满，会按 `retries` 重试。
 - **改了没反应。** 重启 `dsh web`，浏览器硬刷新。
 

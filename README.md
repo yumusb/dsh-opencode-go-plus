@@ -117,6 +117,7 @@ Namespace `dsh-opencode-go-plus` in `~/.dsh/settings.yaml` (or via the card):
 | `modelSource` | `catalog` | `catalog` serves everything the catalog lists; `selected` serves exactly `models` |
 | `retries` | `3` | transient-failure retries (also the retry policy for chat requests) |
 | `timeoutMs` | `15000` | per-attempt timeout for catalog and gateway listing calls |
+| `streamTimeoutMs` | `300000` | per-request timeout for a **chat** call. Set explicitly because the Anthropic SDK otherwise applies its own 10-minute default, so a stalled connection hangs the turn instead of failing into the retry path |
 | `defaultContextWindow` | `262144` | context window for a model the catalog does not size |
 | `defaultMaxTokens` | `32768` | **request** output cap (not the model's capability) |
 | `models` | `[]` | the enabled list; meaning depends on `modelSource` |
@@ -174,6 +175,7 @@ The credential is untouched either way: both routes read the same `OPENCODE_GO_A
 - **The provider does not appear in Settings → Models.** This is deliberate. DSH's Models page renders only its two hardcoded layouts (`llm-deepseek`, `llm-pi-ai`); for any other namespace it prints a fixed "edit settings.yaml" note and no fields at all. Listing this route there would add a dead entry with nothing to edit, so the plugin stays out. Configure it on the plugin card instead — the chat model picker reads the adapter registry, not that directory, so nothing is lost.
 - **A model errors with "has no known wire protocol".** Its stored entry has no `api` and the catalog was unreachable. Enable it from the card while online (which records the protocol), or set `api` on the entry.
 - **`Invalid API key` / 401.** The key is wrong or the subscription lapsed. Use Test connection on the card.
+- **A turn fails with "Connection error." / `PI_AI_ERROR`.** The provider never answered — a dropped socket or a stalled relay. It is classified as `TRANSPORT` and therefore retried per the `retries` setting; `streamTimeoutMs` bounds how long one attempt may hang.
 - **Occasional 503 from the gateway.** The upstream pool is intermittently saturated; requests are retried per the `retries` setting.
 - **Changes not visible.** Restart `dsh web` and hard-refresh the page.
 

@@ -119,3 +119,68 @@ test("a call without a sessionId still carries a routable session header", async
 	// a route-stable sentinel rather than omit the header entirely
 	assert.equal(requests[0].session, "dsh-opencode-go-plus");
 });
+
+
+test("error classification selects the retry policy", async () => {
+	const { classifyPiAiError } = await import("../lib/pi-wire.js");
+	// Every code here must be one the adapter declares retryable, or terminal.
+	// The regression this guards: a dropped connection used to classify as
+	// terminal PI_AI_ERROR, so the harness never retried it.
+	for (const message of ["Connection error.", "fetch failed", "socket hang up", "ECONNRESET", "premature close", "other side closed", "stream ended without a stop reason"]) {
+		assert.equal(classifyPiAiError(message), "TRANSPORT", message);
+	}
+	assert.equal(classifyPiAiError("429 Too Many Requests"), "RATE_LIMIT");
+	assert.equal(classifyPiAiError("500 Internal Server Error"), "SERVER");
+	assert.equal(classifyPiAiError("Request timed out"), "TIMEOUT");
+	assert.equal(classifyPiAiError("401 unauthorized"), "AUTH");
+	// a refusal is a real answer, not something to retry
+	assert.equal(classifyPiAiError("Provider finish_reason: content_filter"), "PI_AI_ERROR");
+});
+
+test("the adapter declares the classified codes retryable", async () => {
+	const { OpenCodeGoAdapter } = await import("../lib/adapter.js");
+	const { classifyPiAiError } = await import("../lib/pi-wire.js");
+	const config = {
+		providerRoute: "opencode-go-plus", baseURL: "https://gateway.example.test/v1", apiKeyEnv: "K",
+		modelSource: "selected", retries: 3, timeoutMs: 5000, streamTimeoutMs: 300000,
+		defaultContextWindow: 4096, defaultMaxTokens: 512, models: []
+	};
+	const adapter = new OpenCodeGoAdapter({ options: () => config, resolveApiKey: async () => "k" });
+	const retryable = adapter.providerRetryPolicy().retryableCodes;
+	// the classes that mean "the request never got an answer" must be retried
+	for (const message of ["Connection error.", "fetch failed", "ECONNRESET", "Request timed out", "500 Internal Server Error", "429 rate limit"]) {
+		const code = classifyPiAiError(message);
+		assert.ok(retryable.includes(code), `${message} -> ${code} must be retryable`);
+	}
+	// a refusal must NOT be retried
+	assert.equal(retryable.includes(classifyPiAiError("content_filter")), false);
+});
+
+test("a chat request carries the configured timeout", async () => {
+	const { OpenCodeGoAdapter } = await import("../lib/adapter.js");
+	const modelId = "test-completions";
+	const seen = [];
+	const original = globalThis.fetch;
+	globalThis.fetch = async (input, init) => {
+		seen.push(new Request(input, init));
+		return new Response(successStream("openai-completions", modelId), { headers: { "content-type": "text/event-stream" } });
+	};
+	try {
+		const adapter = new OpenCodeGoAdapter({
+			options: () => ({
+				providerRoute: "opencode-go-plus", baseURL: "https://gateway.example.test/v1", apiKeyEnv: "K",
+				modelSource: "selected", retries: 0, timeoutMs: 5000, streamTimeoutMs: 12345,
+				defaultContextWindow: 4096, defaultMaxTokens: 512,
+				models: [{ id: modelId, api: "openai-completions", reasoning: false, input: ["text"] }]
+			}),
+			resolveApiKey: async () => "sk-test"
+		});
+		for await (const _chunk of adapter.stream({
+			provider: "opencode-go-plus", model: modelId,
+			messages: [{ id: "m1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }]
+		})) { /* drain */ }
+	} finally {
+		globalThis.fetch = original;
+	}
+	assert.equal(seen.length, 1);
+});
