@@ -1,0 +1,11 @@
+# dsh-opencode-go-plus — profile bundle patch.
+#
+# `dsh plugin --profile web add <this checkout>` installs the package and,
+# because package.json declares `dsh.bundle.patch`, reconciles it into the
+# profile's `dsh.profile.bundles` layer stack automatically. This file is that
+# bundle layer: it inserts the plugin entry. Plugin config lives in the
+# `dsh-opencode-go-plus` settings namespace (Web Settings → Plugins →
+# Plugin configuration) or `~/.dsh/settings.yaml`.
+- insert:
+    - id: dsh-opencode-go-plus
+      name: dsh-opencode-go-plus

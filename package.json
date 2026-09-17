@@ -1,0 +1,53 @@
+{
+  "name": "dsh-opencode-go-plus",
+  "version": "1.0.0",
+  "description": "DSH plugin: standalone OpenCode GO LlmAdapter — owns its provider route outright (per-model wire protocol incl. union-alpha's anthropic-messages), manages models/context/modality/effort declarations in its own settings namespace, never touches llm-pi-ai",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "opencode",
+    "opencode-go",
+    "models",
+    "refresh",
+    "plugin",
+    "cordis"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.85.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-credentials": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-llm": "^0.1.6-alpha.1"
+  },
+  "license": "MIT",
+  "repository": "github:yumusb/dsh-opencode-go-plus",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  }
+}
