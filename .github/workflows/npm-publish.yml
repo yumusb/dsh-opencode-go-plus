@@ -38,4 +38,22 @@ jobs:
       - name: Publish to npm
         # No NODE_AUTH_TOKEN: npm exchanges the OIDC id-token for short-lived
         # credentials, and attaches a provenance attestation automatically.
-        run: npm publish --provenance --access public
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').name")"
+          VER="$(node -p "require('./package.json').version")"
+
+          # 1.0.0 was published by hand before trusted publishing could be
+          # configured, so pushing its tag must be a no-op rather than a failed
+          # run. Distinguish "not published yet" (404 -> proceed) from a real
+          # registry problem (anything else -> fail loudly).
+          if LOOKUP="$(npm view "$PKG@$VER" version 2>&1)"; then
+            echo "::notice::$PKG@$VER is already on npm - nothing to publish."
+            exit 0
+          fi
+          case "$LOOKUP" in
+            *E404*|*"Not Found"*) ;;
+            *) echo "$LOOKUP" >&2; exit 1 ;;
+          esac
+
+          npm publish --provenance --access public
