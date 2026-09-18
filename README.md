@@ -96,8 +96,8 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 |---|---|
 | Gateway URL + API key | Saved directly. The URL goes to settings, the key to the credentials store. |
 | Test connection | Probes **the values currently in the fields**, saved or not, so a key can be checked before it is stored. One authenticated request per protocol in use; reports whether the key is actually accepted. The result says when it tested unsaved values. |
-| Enabled models | Listed as soon as the card opens, read-only, with each model's context window, output cap and modalities. No request: this comes from the same payload as the rest of the card. |
-| Fetch available models | Switches the list to the editable form: the gateway's live models as candidates, already-enabled ones pre-checked. |
+| Model list | The gateway's live models, loaded when the card opens and ready to edit — no button needed first. Served models are pre-checked, and each row shows its context window, output cap and modalities. |
+| Refresh list | Re-reads the gateway's list, e.g. after models are added upstream. |
 | Check model availability | Probes **every enabled model** with one request each (any real model has to answer) and reports the ones the provider no longer serves, plus any blocked by policy or region. Each probe is rejected before generation, so it costs no tokens. |
 | Search + filter | Find by id or name; switch between all / enabled / disabled. Available once the list is editable. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
@@ -114,7 +114,7 @@ Save and Test are independent: Save persists, Test only reads. Leaving the key f
 - **No longer in the catalog, possibly retired** — shown on the card with no request at all. The catalog is the documentation of record, and a model it has dropped can no longer have its protocol or capabilities refreshed. Treat this as a hint, not proof: a brand-new model appears on the gateway before the catalog catches up.
 - **The provider no longer serves it** — shown after **Check model availability**, which is ground truth. It also separates a retired model from one merely blocked by policy or region, because the two need different fixes.
 
-Either way, the card offers **Remove these models and save**, which commits the reduced selection immediately — that is what the action is for, and it works whether or not you have loaded the model list. The one exception is a checkbox list holding unapplied edits: then it asks you to commit or discard those first rather than overwriting them silently.
+Either way, the card offers **Remove these models and save**, which commits the reduced selection immediately. The one exception is a list holding unapplied edits: then it asks you to commit or discard those first rather than overwriting them silently.
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
 
@@ -152,7 +152,7 @@ Entry fields: `id` (required), `name`, `contextWindow`, `maxTokens`, `input` (`[
 
 The credential reference is the same (`OPENCODE_GO_API_KEY`), so one key serves both.
 
-The easiest migration is not to copy model fields at all: fill in the gateway URL and key on the card, then **Fetch available models** and check what you want. Names, limits, modalities and protocols are filled in from the catalog.
+The easiest migration is not to copy model fields at all: fill in the gateway URL and key on the card, then check what you want from the list it loads. Names, limits, modalities and protocols are filled in from the catalog.
 
 If you do copy the section, these fields carry over unchanged: `baseURL`, `apiKeyEnv`, `models[].id`, `models[].name`, `models[].contextWindow`, `models[].maxTokens`, `models[].input`.
 
