@@ -133,6 +133,11 @@ test("error classification selects the retry policy", async () => {
 	assert.equal(classifyPiAiError("500 Internal Server Error"), "SERVER");
 	assert.equal(classifyPiAiError("Request timed out"), "TIMEOUT");
 	assert.equal(classifyPiAiError("401 unauthorized"), "AUTH");
+	// the gateway 403s opt-in models (DataPolicyError) until the account accepts
+	// their data-use terms; classifying that as AUTH made DSH's UI hide the real
+	// message — which carries the opt-in URL — behind "invalid API key"
+	const dataPolicy = 'OpenAI API error (403): {"type":"error","error":{"type":"DataPolicyError","message":"This model collects data and requires explicit opt in: https://opencode.ai/workspace/wrk_x/go"}}';
+	assert.equal(classifyPiAiError(dataPolicy), "DATA_POLICY");
 	// a refusal is a real answer, not something to retry
 	assert.equal(classifyPiAiError("Provider finish_reason: content_filter"), "PI_AI_ERROR");
 });
