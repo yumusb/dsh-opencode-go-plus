@@ -726,6 +726,40 @@ test("the connection test rejects a bad key instead of trusting the model listin
 	assert.equal(Array.isArray(acceptedBody.checks), true);
 });
 
+test("a 403 model block is not reported as a rejected credential", async (t) => {
+	// This gateway refuses a policy or region block with 403 (DataPolicyError
+	// for opt-in models, RegionError for geo-blocked ones) while the credential
+	// itself is fine. Folding that into an auth failure made the card blame the
+	// key and hid the real reason behind "invalid API key".
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		// leave the mount's background catalog fetch alone
+		if (init?.method !== "POST") {
+			return { ok: true, status: 200, headers: new Map(), async text() { return "{}"; } };
+		}
+		return {
+			ok: false,
+			status: 403,
+			headers: new Map(),
+			async text() {
+				return JSON.stringify({ type: "error", error: { type: "RegionError", message: "This model is not available in your country." } });
+			}
+		};
+	});
+	const { routes } = host();
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/test").handler({}, res);
+	const body = JSON.parse(res.body);
+	assert.equal(body.ok, true, "a 403 is a model block, not a credential failure");
+	assert.ok(body.checks.length > 0, "expected at least one probe");
+	for (const check of body.checks) {
+		assert.equal(check.verdict, "accepted", "the key was read and accepted");
+		// flagged so the card can say the model is blocked rather than implying
+		// that everything about that protocol works
+		assert.equal(check.blocked, true);
+		assert.match(check.detail, /not available in your country/);
+	}
+});
+
 test("the connection test probes every protocol the configuration uses", async (t) => {
 	const seen = [];
 	t.mock.method(globalThis, "fetch", async (url, init) => {

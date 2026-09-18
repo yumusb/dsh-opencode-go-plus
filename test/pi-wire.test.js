@@ -133,9 +133,16 @@ test("error classification selects the retry policy", async () => {
 	assert.equal(classifyPiAiError("500 Internal Server Error"), "SERVER");
 	assert.equal(classifyPiAiError("Request timed out"), "TIMEOUT");
 	assert.equal(classifyPiAiError("401 unauthorized"), "AUTH");
+	// this gateway answers a bad credential with 401 / "Invalid API key", and
+	// DSH's UI replaces an AUTH message with a fixed "invalid API key" string
+	assert.equal(classifyPiAiError('OpenAI API error (401): {"error":{"message":"Invalid API key."}}'), "AUTH");
+	// A 403 is a refusal, NOT a credential failure, and must not borrow AUTH:
+	// doing so made DSH's UI discard the real reason and print "invalid API key"
+	// — a geo-blocked model looked like a broken key.
+	assert.equal(classifyPiAiError('OpenAI API error (403): {"type":"RegionError","message":"This model is not available in your country."}'), "FORBIDDEN");
+	assert.equal(classifyPiAiError("403 Forbidden"), "FORBIDDEN");
 	// the gateway 403s opt-in models (DataPolicyError) until the account accepts
-	// their data-use terms; classifying that as AUTH made DSH's UI hide the real
-	// message — which carries the opt-in URL — behind "invalid API key"
+	// their data-use terms; the code keeps the opt-in URL visible in the UI
 	const dataPolicy = 'OpenAI API error (403): {"type":"error","error":{"type":"DataPolicyError","message":"This model collects data and requires explicit opt in: https://opencode.ai/workspace/wrk_x/go"}}';
 	assert.equal(classifyPiAiError(dataPolicy), "DATA_POLICY");
 	// a refusal is a real answer, not something to retry
@@ -159,6 +166,10 @@ test("the adapter declares the classified codes retryable", async () => {
 	}
 	// a refusal must NOT be retried
 	assert.equal(retryable.includes(classifyPiAiError("content_filter")), false);
+	// nor may a 403: it is a permanent refusal, so a retry cannot change it
+	assert.equal(retryable.includes(classifyPiAiError("403 Forbidden")), false);
+	assert.equal(retryable.includes(classifyPiAiError('OpenAI API error (403): {"type":"RegionError","message":"This model is not available in your country."}')), false);
+	assert.equal(retryable.includes(classifyPiAiError('OpenAI API error (403): {"type":"DataPolicyError","message":"requires explicit opt in: https://x/go"}')), false);
 });
 
 test("a chat request carries the configured timeout", async () => {
