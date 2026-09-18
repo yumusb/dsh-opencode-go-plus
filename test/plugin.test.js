@@ -903,6 +903,43 @@ test("models-info flags a model the catalog has dropped", async (t) => {
 	assert.deepEqual(body.undocumented, ["ghost-model"], "glm-5.3-flash is documented, ghost-model is not");
 });
 
+test("models-info returns full served rows, so the card can list them unopened", async (t) => {
+	// The card renders the served list straight from this payload; ids alone
+	// would leave it saying "7 models enabled" with nothing under it.
+	t.mock.method(globalThis, "fetch", async () => ({
+		ok: true,
+		headers: new Map([["content-type", "application/json"]]),
+		async json() { return { data: [{ id: "ghost-model" }, { id: "glm-5.3-flash" }] }; }
+	}));
+	const { routes } = host({
+		models: [
+			// documented: the catalog supplies the facts
+			{ id: "glm-5.3-flash", name: "ignored, catalog wins" },
+			// undocumented: only the stored entry describes it
+			{ id: "ghost-model", api: "anthropic-messages", name: "Ghost", contextWindow: 111111, maxTokens: 2222, input: ["text"], reasoning: true }
+		]
+	});
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/models-info").handler({}, res);
+	const body = JSON.parse(res.body);
+	assert.equal(Array.isArray(body.entries), true, "entries must be sent");
+	assert.deepEqual(body.entries.map((entry) => entry.id), ["glm-5.3-flash", "ghost-model"]);
+
+	const documented = body.entries.find((entry) => entry.id === "glm-5.3-flash");
+	// the row carries the facts the card renders, from the catalog
+	assert.equal(documented.name, "GLM-5.3-Flash");
+	assert.equal(documented.contextWindow, 1000000);
+	assert.deepEqual(documented.input, ["text", "image"]);
+	assert.equal(documented.undocumented, undefined);
+
+	const ghost = body.entries.find((entry) => entry.id === "ghost-model");
+	// and the undocumented one carries the stored fallback plus the mark
+	assert.equal(ghost.api, "anthropic-messages");
+	assert.equal(ghost.contextWindow, 111111);
+	assert.equal(ghost.name, "Ghost");
+	assert.equal(ghost.undocumented, true);
+});
+
 test("models-check probes every enabled model and separates retired from blocked", async (t) => {
 	t.mock.method(globalThis, "fetch", async (url, init) => {
 		if (init?.method !== "POST") {
@@ -1078,6 +1115,11 @@ async function mountCardWithCandidates(data) {
 			return {
 				ok: true, provider: "opencode-go-plus", configured: data.configured.length,
 				models: data.configured, modelSource: "selected", fromCatalog: false, stale: [],
+				// the served rows the card lists on open, without any fetch
+				entries: data.configured.map((id) => {
+					const known = (data.candidates ?? []).find((c) => c.id === id);
+					return known ? { ...known } : { id };
+				}),
 				undocumented: data.undocumented ?? [],
 				conflicts: data.conflicts ?? []
 			};
@@ -1489,6 +1531,62 @@ test("the card warns about an enabled model the catalog dropped", async () => {
 			&& node.props.children.includes("possibly retired"));
 		assert.equal(warn.length, 1, "the undocumented warning must render");
 		assert.match(warn[0].props.children, /union-alpha/);
+	} finally {
+		card.restoreFetch();
+	}
+});
+
+test("the card lists the served models as soon as it opens", async () => {
+	// The card used to say "7 models enabled" and show nothing under it until
+	// the user fetched candidates — a fetch whose purpose is to EDIT the
+	// selection, and which should not be needed just to read it.
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"],
+		undocumented: ["union-alpha"],
+		fetchCandidates: false
+	});
+	try {
+		// no fetch happened: this is purely the models-info payload
+		assert.equal(card.calls.some((call) => call.url.endsWith("/models-fetch")), false);
+
+		// both served models are listed by id, with their facts
+		const ids = findAll(card.tree, (node) => node.props?.className === "ocgp-cand-id");
+		const text = ids.map((node) => [].concat(node.props.children).filter((c) => typeof c === "string").join(" ")).join(" | ");
+		assert.match(text, /glm-5\.3-flash/);
+		assert.match(text, /union-alpha/);
+		// and the descriptions are populated, not blank
+		const descs = findAll(card.tree, (node) => node.props?.className === "ocgp-cand-desc")
+			.map((node) => String(node.props.children));
+		assert.ok(descs.some((d) => d.includes("context")), "row facts must render");
+
+		// read-only: nothing to toggle, and no apply/commit controls
+		assert.equal(findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox").length, 0);
+		assert.equal(buttonByLabel(card.tree, "Enable selected (2)"), undefined);
+		// the row is not presented as clickable
+		assert.equal(findAll(card.tree, (node) => node.type === "label" && node.props.className === "ocgp-cand").length, 0);
+		assert.equal(findAll(card.tree, (node) => node.props?.className === "ocgp-cand ocgp-cand-static").length, 2);
+
+		// the header names the list, so it reads as current state
+		const header = findAll(card.tree, (node) => typeof node.props?.children === "string"
+			&& node.props.children.includes("enabled (use Fetch available models"));
+		assert.equal(header.length, 1);
+	} finally {
+		card.restoreFetch();
+	}
+});
+
+test("fetching candidates switches the list to the editable form", async () => {
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"]
+	});
+	try {
+		// the helper already pressed Fetch, so the editable list is showing
+		assert.ok(card.calls.some((call) => call.url.endsWith("/models-fetch")));
+		assert.equal(findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox").length > 0, true);
+		assert.equal(findAll(card.tree, (node) => node.type === "label" && node.props.className === "ocgp-cand").length > 0, true);
+		assert.ok(buttonByLabel(card.tree, "Refresh list"), "the refetch control stays available");
 	} finally {
 		card.restoreFetch();
 	}

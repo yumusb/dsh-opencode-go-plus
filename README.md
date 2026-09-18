@@ -96,9 +96,10 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 |---|---|
 | Gateway URL + API key | Saved directly. The URL goes to settings, the key to the credentials store. |
 | Test connection | Probes **the values currently in the fields**, saved or not, so a key can be checked before it is stored. One authenticated request per protocol in use; reports whether the key is actually accepted. The result says when it tested unsaved values. |
-| Fetch available models | Lists the gateway's live models as candidates; already-enabled ones are pre-checked. |
+| Enabled models | Listed as soon as the card opens, read-only, with each model's context window, output cap and modalities. No request: this comes from the same payload as the rest of the card. |
+| Fetch available models | Switches the list to the editable form: the gateway's live models as candidates, already-enabled ones pre-checked. |
 | Check model availability | Probes **every enabled model** with one request each (any real model has to answer) and reports the ones the provider no longer serves, plus any blocked by policy or region. Each probe is rejected before generation, so it costs no tokens. |
-| Search + filter | Find by id or name; switch between all / enabled / disabled. |
+| Search + filter | Find by id or name; switch between all / enabled / disabled. Available once the list is editable. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
 | Enable selected / Disable all | Writes exactly the checked ids. Unchecking everything is legal and disables every model. |
 
