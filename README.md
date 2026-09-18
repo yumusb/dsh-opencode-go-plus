@@ -113,7 +113,7 @@ Save and Test are independent: Save persists, Test only reads. Leaving the key f
 - **No longer in the catalog, possibly retired** — shown on the card with no request at all. The catalog is the documentation of record, and a model it has dropped can no longer have its protocol or capabilities refreshed. Treat this as a hint, not proof: a brand-new model appears on the gateway before the catalog catches up.
 - **The provider no longer serves it** — shown after **Check model availability**, which is ground truth. It also separates a retired model from one merely blocked by policy or region, because the two need different fixes.
 
-Either way, the card offers to drop the affected models from the selection; nothing is written until you click **Enable selected**.
+Either way, the card offers **Remove these models and save**, which commits the reduced selection immediately — that is what the action is for, and it works whether or not you have loaded the model list. The one exception is a checkbox list holding unapplied edits: then it asks you to commit or discard those first rather than overwriting them silently.
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
 

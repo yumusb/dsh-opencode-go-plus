@@ -1073,7 +1073,7 @@ async function mountCardWithCandidates(data) {
 		fetch: (...args) => globalThis.fetch(...args)
 	};
 	vm.runInNewContext(source, context);
-	const payloadFor = (url) => {
+	const payloadFor = (url, init) => {
 		if (url.endsWith("/models-info")) {
 			return {
 				ok: true, provider: "opencode-go-plus", configured: data.configured.length,
@@ -1092,7 +1092,11 @@ async function mountCardWithCandidates(data) {
 		if (url.endsWith("/models-fetch")) {
 			return { ok: true, via: "https://example.test/v1/models", candidates: data.candidates, configured: data.configured };
 		}
-		if (url.endsWith("/models-apply")) return { ok: true, total: 0, models: [] };
+		// echo the committed ids so a test can assert exactly what was written
+		if (url.endsWith("/models-apply")) {
+			const ids = init?.body ? (JSON.parse(init.body).ids ?? []) : [];
+			return { ok: true, total: ids.length, models: ids };
+		}
 		if (url.endsWith("/test")) {
 			return {
 				ok: true, baseURL: "https://example.test/v1", apiKeyEnv: "OPENCODE_GO_API_KEY",
@@ -1114,7 +1118,7 @@ async function mountCardWithCandidates(data) {
 	const previousFetch = globalThis.fetch;
 	globalThis.fetch = async (url, init) => {
 		calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body });
-		return { status: 200, ok: true, json: async () => payloadFor(String(url)) };
+		return { status: 200, ok: true, json: async () => payloadFor(String(url), init) };
 	};
 	try {
 		// the runtime must exist before the factory captures its hooks
@@ -1131,9 +1135,13 @@ async function mountCardWithCandidates(data) {
 		});
 		card.mount(Component);
 		await settle();
-		// fetch the candidate list (the button the user presses)
-		buttonByLabel(card.tree, "Fetch available models").props.onClick();
-		await settle();
+		// Most tests want the candidate list loaded; `fetchCandidates: false`
+		// leaves the card in the state the reported bug happened in — the
+		// availability check is usable straight away.
+		if (data.fetchCandidates !== false) {
+			buttonByLabel(card.tree, "Fetch available models").props.onClick();
+			await settle();
+		}
 		card.calls = calls;
 		// the removal POST fires after this helper returns, so the caller
 		// restores the mock itself via card.restoreFetch() once done asserting
@@ -1486,10 +1494,90 @@ test("the card warns about an enabled model the catalog dropped", async () => {
 	}
 });
 
-test("the card reports a retired model and can drop it from the selection", async () => {
+test("the card removes a retired model even with no candidate list loaded", async () => {
+	// The reported bug: the check runs without the candidate list ever being
+	// fetched, and removal edited `picked` — which is empty until that fetch —
+	// so it deleted nothing, claimed success, and told the user to click an
+	// "Enable selected" button that is not rendered without the list.
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"],
+		unavailable: ["union-alpha"],
+		fetchCandidates: false
+	});
+	try {
+		// no candidate list: no apply button, no checkboxes
+		assert.equal(buttonByLabel(card.tree, "Enable selected (1)"), undefined);
+		assert.equal(findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox").length, 0);
+
+		buttonByLabel(card.tree, "Check model availability").props.onClick();
+		await settle();
+		const named = findAll(card.tree, (node) => [].concat(node.props?.children ?? [])
+			.filter((child) => typeof child === "string").join(" ").includes("no longer serves them"));
+		assert.equal(named.length, 1, "the retired model must be named");
+
+		card.calls.length = 0;
+		buttonByLabel(card.tree, "Remove these models and save").props.onClick();
+		await settle();
+
+		// it must actually WRITE, and write exactly the served set minus the
+		// retired model — not an empty set derived from the missing draft
+		const applyCall = card.calls.find((call) => call.url.endsWith("/models-apply"));
+		assert.ok(applyCall, "removal must commit to the apply endpoint");
+		assert.deepEqual(JSON.parse(applyCall.body).ids, ["glm-5.3-flash"]);
+
+		// and the result must not point at a button that does not exist
+		const text = findAll(card.tree, (node) => [].concat(node.props?.children ?? [])
+			.filter((child) => typeof child === "string").join(" "));
+		const said = text.map((node) => [].concat(node.props.children).filter((c) => typeof c === "string").join(" ")).join(" | ");
+		assert.match(said, /Removed and saved: union-alpha/);
+		assert.doesNotMatch(said, /Enable selected/, "no instruction to click a missing button");
+	} finally {
+		card.restoreFetch();
+	}
+});
+
+test("the card refuses to remove while the selection has unapplied edits", async () => {
+	// With the candidate list loaded the checkboxes may hold unsaved edits, and
+	// committing would discard them silently — so that case must ask first.
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"],
+		unavailable: ["union-alpha"]
+	});
+	try {
+		buttonByLabel(card.tree, "Check model availability").props.onClick();
+		await settle();
+
+		// make an unrelated edit so the draft differs from the committed set
+		const boxes = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox");
+		const omen = boxes.find((box) => String(box.props.id).includes("ocgp-cand-"));
+		assert.ok(omen);
+		// toggle the row whose label names omen-alpha
+		const label = findAll(card.tree, (node) => node.type === "label")
+			.find((node) => JSON.stringify(node.props.children ?? "").includes("omen-alpha"));
+		assert.ok(label, "expected the omen-alpha row");
+		const box = findAll(label, (node) => node.type === "input" && node.props.type === "checkbox")[0];
+		box.props.onChange();
+		await settle();
+
+		card.calls.length = 0;
+		buttonByLabel(card.tree, "Remove these models and save").props.onClick();
+		await settle();
+
+		assert.equal(card.calls.some((call) => call.url.endsWith("/models-apply")), false,
+			"nothing may be written while the draft has unapplied edits");
+		const warned = findAll(card.tree, (node) => [].concat(node.props?.children ?? [])
+			.filter((child) => typeof child === "string").join(" ").includes("unapplied changes"));
+		assert.equal(warned.length, 1, "the user must be told to commit or discard first");
+	} finally {
+		card.restoreFetch();
+	}
+});
+
+test("the card removes a retired model and reports it saved", async () => {
 	// union-alpha's real situation: enabled, still advertised by the gateway,
-	// reported unavailable by the provider. The card must say so and offer to
-	// take it out of the selection.
+	// reported unavailable by the provider.
 	const card = await mountCardWithCandidates({
 		candidates: CANDIDATES,
 		configured: ["glm-5.3-flash", "union-alpha"],
@@ -1500,32 +1588,26 @@ test("the card reports a retired model and can drop it from the selection", asyn
 		await settle();
 
 		// the result names the model rather than reporting a bare failure
-		const line = findAll(card.tree, (node) => {
-			const children = node.props?.children;
-			const text = Array.isArray(children)
-				? children.filter((child) => typeof child === "string").join(" ")
-				: children;
-			return typeof text === "string" && text.includes("no longer serves them");
-		});
+		const line = findAll(card.tree, (node) => [].concat(node.props?.children ?? [])
+			.filter((child) => typeof child === "string").join(" ").includes("no longer serves them"));
 		assert.equal(line.length, 1, "the retired model must be named");
-		const lineText = [].concat(line[0].props.children).filter((child) => typeof child === "string").join(" ");
-		assert.match(lineText, /union-alpha/);
 
-		// and it is still selected at this point — nothing is written silently
-		const boxes = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox");
-		const before = boxes.filter((box) => box.props.checked).length;
-		assert.equal(before, 2, "both start selected");
+		// still selected until removal is requested — nothing written silently
+		const checkedNow = () => findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox")
+			.filter((box) => box.props.checked).map((box) => box.props.id);
+		assert.equal(checkedNow().length, 2, "both start selected");
 
-		buttonByLabel(card.tree, "Remove these models").props.onClick();
+		card.calls.length = 0;
+		buttonByLabel(card.tree, "Remove these models and save").props.onClick();
 		await settle();
 
-		const after = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox")
-			.filter((box) => box.props.checked).length;
-		assert.equal(after, 1, "the retired model is deselected");
-		// removal edits the selection only; the apply button is what writes it
-		const dropped = findAll(card.tree, (node) => typeof node.props?.children === "string"
-			&& node.props.children.includes("Enable selected"));
-		assert.equal(dropped.length, 1, "the change still needs an explicit apply");
+		const applyCall = card.calls.find((call) => call.url.endsWith("/models-apply"));
+		assert.ok(applyCall, "removal commits");
+		assert.deepEqual(JSON.parse(applyCall.body).ids, ["glm-5.3-flash"]);
+		// the applied set flows back into the rows, so the checkbox reflects it
+		assert.equal(checkedNow().length, 1, "the retired model is no longer selected");
+		assert.equal(findAll(card.tree, (node) => [].concat(node.props?.children ?? [])
+			.filter((child) => typeof child === "string").join(" ").includes("Removed and saved")).length, 1);
 	} finally {
 		card.restoreFetch();
 	}
