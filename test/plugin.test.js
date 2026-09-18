@@ -760,6 +760,89 @@ test("a 403 model block is not reported as a rejected credential", async (t) => 
 	}
 });
 
+test("the connection test probes the field values, not the saved ones", async (t) => {
+	// The Test button must answer "do these values work?" before anything is
+	// saved. It used to ignore the request body and probe the stored config, so
+	// a freshly pasted URL or key reported the health of the OLD connection and
+	// the result looked unrelated to what was on screen.
+	const probes = [];
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		// leave the mount's background catalog fetch alone
+		if (init?.method !== "POST") {
+			return { ok: true, status: 200, headers: new Map(), async text() { return "{}"; } };
+		}
+		const headers = init?.headers ?? {};
+		const raw = headers.authorization ?? headers["x-api-key"];
+		probes.push({ url: String(url), auth: String(raw).replace(/^Bearer\s+/i, "") });
+		return { ok: false, status: 400, headers: new Map(), async text() { return '{"error":{"type":"invalid_request_error","message":"messages must not be empty"}}'; } };
+	});
+	const { routes } = host({ credential: "sk-stored" });
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/test").handler({
+		method: "POST",
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ baseURL: "https://draft.example.net/v1", apiKey: "sk-typed" })));
+			if (ev === "end") fn();
+		}
+	}, res);
+	const body = JSON.parse(res.body);
+	assert.equal(body.ok, true);
+	assert.ok(probes.length > 0, "expected at least one probe");
+	for (const probe of probes) {
+		// the draft URL was probed, never the saved one
+		assert.match(probe.url, /draft\.example\.net/);
+		assert.doesNotMatch(probe.url, /gateway\.example\.test/);
+		assert.equal(probe.auth, "sk-typed", "the typed key must be the one tested");
+	}
+	// the reported target is what was tested, so a draft test is unambiguous
+	assert.equal(body.baseURL, "https://draft.example.net/v1");
+	// testing is a read-only operation: it must never persist the draft
+	assert.deepEqual(storedCredentials, [], "testing must not save the credential");
+});
+
+test("an empty key field reuses the stored credential when testing", async (t) => {
+	// Matches the Save rule: blank means "keep what is stored", so testing with
+	// the key field untouched must still authenticate.
+	const auths = [];
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (init?.method !== "POST") {
+			return { ok: true, status: 200, headers: new Map(), async text() { return "{}"; } };
+		}
+		const headers = init?.headers ?? {};
+		const raw = headers.authorization ?? headers["x-api-key"];
+		auths.push(String(raw).replace(/^Bearer\s+/i, ""));
+		return { ok: false, status: 400, headers: new Map(), async text() { return '{"error":{"type":"invalid_request_error"}}'; } };
+	});
+	const { routes } = host({ credential: "sk-stored" });
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/test").handler({
+		method: "POST",
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ baseURL: "https://draft.example.net/v1", apiKey: "" })));
+			if (ev === "end") fn();
+		}
+	}, res);
+	const body = JSON.parse(res.body);
+	assert.equal(body.ok, true);
+	assert.ok(auths.length > 0);
+	for (const auth of auths) assert.equal(auth, "sk-stored");
+	assert.deepEqual(storedCredentials, []);
+
+	// whitespace-only is blank too, and must not be probed as a literal key
+	auths.length = 0;
+	const wsRes = response();
+	await routes.get("/dsh-opencode-go-plus/test").handler({
+		method: "POST",
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ baseURL: "https://draft.example.net/v1", apiKey: "   " })));
+			if (ev === "end") fn();
+		}
+	}, wsRes);
+	assert.equal(JSON.parse(wsRes.body).ok, true);
+	assert.ok(auths.length > 0);
+	for (const auth of auths) assert.equal(auth, "sk-stored");
+});
+
 test("the connection test probes every protocol the configuration uses", async (t) => {
 	const seen = [];
 	t.mock.method(globalThis, "fetch", async (url, init) => {
@@ -920,6 +1003,13 @@ async function mountCardWithCandidates(data) {
 			return { ok: true, via: "https://example.test/v1/models", candidates: data.candidates, configured: data.configured };
 		}
 		if (url.endsWith("/models-apply")) return { ok: true, total: 0, models: [] };
+		if (url.endsWith("/test")) {
+			return {
+				ok: true, baseURL: "https://example.test/v1", apiKeyEnv: "OPENCODE_GO_API_KEY",
+				ms: 12, models: 1,
+				checks: [{ ok: true, status: 400, api: "openai-completions", model: "glm-5.3-flash", verdict: "accepted", detail: "messages must not be empty" }]
+			};
+		}
 		return { ok: false, error: `unexpected ${url}` };
 	};
 	const calls = [];
@@ -1273,6 +1363,45 @@ test("the card renders with the connection and model controls", async () => {
 	assert.deepEqual(inputs, ["Gateway URL", "API key"]);
 	// the apply button only appears once candidates are fetched
 	assert.deepEqual(buttons, ["Save", "Test connection", "Fetch available models"]);
+	// and the line that answers "must I save before testing?"
+	const hints = findAll(tree, (node) => typeof node.props?.children === "string"
+		&& node.props.children.includes("saving first is not required"));
+	assert.equal(hints.length, 1, "the Save/Test hint must be rendered");
+});
+
+test("the card's Test connection sends the typed values and says they are unsaved", async () => {
+	const card = await mountCardWithCandidates({ candidates: CANDIDATES, configured: ["glm-5.3-flash", "omen-alpha"] });
+	try {
+		const inputs = findAll(card.tree, (node) => node.type === "input");
+		const urlInput = inputs.find((node) => node.props["aria-label"] === "Gateway URL");
+		const keyInput = inputs.find((node) => node.props["aria-label"] === "API key");
+		assert.ok(urlInput && keyInput, "both connection fields must be present");
+		// type a new gateway and a new key, as a user would before saving
+		urlInput.props.onChange({ target: { value: "https://draft.example.net/v1" } });
+		keyInput.props.onChange({ target: { value: "sk-typed" } });
+		await settle();
+
+		card.calls.length = 0;
+		buttonByLabel(card.tree, "Test connection").props.onClick();
+		await settle();
+
+		const testCall = card.calls.find((call) => call.url.endsWith("/test"));
+		assert.ok(testCall, "Test connection must POST to the test route");
+		assert.equal(testCall.method, "POST");
+		// the values on screen are the ones tested — the whole point of the fix
+		assert.deepEqual(JSON.parse(testCall.body), {
+			baseURL: "https://draft.example.net/v1",
+			apiKey: "sk-typed"
+		});
+
+		// and the result says so, so a pass on unsaved values is not mistaken
+		// for a saved configuration
+		const lines = findAll(card.tree, (node) => typeof node.props?.children === "string"
+			&& node.props.children.includes("tested the field values"));
+		assert.equal(lines.length, 1, "the unsaved marker must be shown");
+	} finally {
+		card.restoreFetch();
+	}
 });
 
 test("client bundles register the Plugins settings card", async () => {

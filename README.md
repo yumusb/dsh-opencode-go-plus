@@ -95,13 +95,15 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 | control | what it does |
 |---|---|
 | Gateway URL + API key | Saved directly. The URL goes to settings, the key to the credentials store. |
-| Test connection | One authenticated request per protocol in use; reports whether the key is actually accepted. |
+| Test connection | Probes **the values currently in the fields**, saved or not, so a key can be checked before it is stored. One authenticated request per protocol in use; reports whether the key is actually accepted. The result says when it tested unsaved values. |
 | Fetch available models | Lists the gateway's live models as candidates; already-enabled ones are pre-checked. |
 | Search + filter | Find by id or name; switch between all / enabled / disabled. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
 | Enable selected / Disable all | Writes exactly the checked ids. Unchecking everything is legal and disables every model. |
 
 The model picker shows this provider as **OpenCode GO Plus**, distinct from the official `OpenCode GO` route.
+
+Save and Test are independent: Save persists, Test only reads. Leaving the key field blank means "keep the stored key" in both. So there is no required order — type, test, then save if it works.
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
 
