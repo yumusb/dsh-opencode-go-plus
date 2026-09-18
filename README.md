@@ -97,6 +97,7 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 | Gateway URL + API key | Saved directly. The URL goes to settings, the key to the credentials store. |
 | Test connection | Probes **the values currently in the fields**, saved or not, so a key can be checked before it is stored. One authenticated request per protocol in use; reports whether the key is actually accepted. The result says when it tested unsaved values. |
 | Fetch available models | Lists the gateway's live models as candidates; already-enabled ones are pre-checked. |
+| Check model availability | Probes **every enabled model** with one request each (any real model has to answer) and reports the ones the provider no longer serves, plus any blocked by policy or region. Each probe is rejected before generation, so it costs no tokens. |
 | Search + filter | Find by id or name; switch between all / enabled / disabled. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
 | Enable selected / Disable all | Writes exactly the checked ids. Unchecking everything is legal and disables every model. |
@@ -104,6 +105,15 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 The model picker shows this provider as **OpenCode GO Plus**, distinct from the official `OpenCode GO` route.
 
 Save and Test are independent: Save persists, Test only reads. Leaving the key field blank means "keep the stored key" in both. So there is no required order — type, test, then save if it works.
+
+### Retired models
+
+`/v1/models` is an advertising surface, not ground truth: it keeps listing models the provider has already retired. `union-alpha` was still advertised long after every call to it started failing with `Model is unavailable.`, so the plugin can report two different things:
+
+- **No longer in the catalog, possibly retired** — shown on the card with no request at all. The catalog is the documentation of record, and a model it has dropped can no longer have its protocol or capabilities refreshed. Treat this as a hint, not proof: a brand-new model appears on the gateway before the catalog catches up.
+- **The provider no longer serves it** — shown after **Check model availability**, which is ground truth. It also separates a retired model from one merely blocked by policy or region, because the two need different fixes.
+
+Either way, the card offers to drop the affected models from the selection; nothing is written until you click **Enable selected**.
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
 
@@ -179,6 +189,7 @@ The credential is untouched either way: both routes read the same `OPENCODE_GO_A
 - **`Invalid API key` / 401.** The key is wrong or the subscription lapsed. Use Test connection on the card.
 - **A model is refused with 403 (policy or region).** The gateway reports a policy block as `DataPolicyError` and a geo-block as `RegionError`, both with 403. Neither is a credential failure, so the plugin keeps them out of `AUTH` — that is the one code DSH's chat and trajectory UI replaces with a fixed "invalid API key" string, discarding the original text. The real message therefore reaches the UI, including the opt-in URL a `DataPolicyError` carries. A 403 is permanent, so it is not retried. For `DataPolicyError`, accept the model's data-use terms at that URL; for `RegionError`, the model is not served in your region.
 - **A turn fails with "Connection error." / `PI_AI_ERROR`.** The provider never answered — a dropped socket or a stalled relay. It is classified as `TRANSPORT` and therefore retried per the `retries` setting; `streamTimeoutMs` bounds how long one attempt may hang.
+- **An enabled model stops working (`Model is unavailable.`).** See [Retired models](#retired-models). The gateway keeps advertising retired models, so an enabled one can silently rot; **Check model availability** names them and the card can drop them in one click.
 - **Occasional 503 from the gateway.** The upstream pool is intermittently saturated; requests are retried per the `retries` setting.
 - **Changes not visible.** Restart `dsh web` and hard-refresh the page.
 

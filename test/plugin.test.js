@@ -885,6 +885,95 @@ test("models-info reports key status, source and stale enabled models", async (t
 	assert.deepEqual(body.stale, ["deepseek-v4-flash"]);
 });
 
+test("models-info flags a model the catalog has dropped", async (t) => {
+	// The gateway still advertises `ghost-model`, so it is not stale, but the
+	// catalog has stopped describing it — which is what happened to union-alpha
+	// before the provider retired it. Free to compute (no request), so the card
+	// can say it on every load.
+	t.mock.method(globalThis, "fetch", async () => ({
+		ok: true,
+		headers: new Map([["content-type", "application/json"]]),
+		async json() { return { data: [{ id: "ghost-model" }, { id: "glm-5.3-flash" }] }; }
+	}));
+	const { routes } = host({ models: [{ id: "ghost-model" }, { id: "glm-5.3-flash" }] });
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/models-info").handler({}, res);
+	const body = JSON.parse(res.body);
+	assert.deepEqual(body.stale, [], "the gateway still lists both");
+	assert.deepEqual(body.undocumented, ["ghost-model"], "glm-5.3-flash is documented, ghost-model is not");
+});
+
+test("models-check probes every enabled model and separates retired from blocked", async (t) => {
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (init?.method !== "POST") {
+			return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return '{"data":[]}'; } };
+		}
+		const model = JSON.parse(init.body).model;
+		// Each response is what the gateway really answers an empty probe with.
+		const byModel = {
+			// live: refused during validation, so the model itself answered
+			"glm-5.3-flash": { status: 400, body: { error: { type: "invalid_request_error", message: "messages must not be empty" } } },
+			// advertised, but the provider has retired it
+			"union-alpha": { status: 400, body: { error: { message: "Error from provider (Console Go): Upstream request failed: Model is unavailable." } } },
+			// alive but this account may not use it
+			"muse-spark-1.3-contributor": { status: 403, body: { type: "error", error: { type: "DataPolicyError", message: "requires explicit opt in: https://x/go" } } }
+		};
+		const hit = byModel[model] ?? { status: 400, body: { error: { message: "messages must not be empty" } } };
+		return { ok: false, status: hit.status, headers: new Map(), async text() { return JSON.stringify(hit.body); } };
+	});
+	const { routes } = host({
+		// the three wire protocols, so a per-protocol check would collapse them
+		models: [
+			{ id: "glm-5.3-flash", api: "openai-completions" },
+			{ id: "union-alpha", api: "anthropic-messages" },
+			{ id: "muse-spark-1.3-contributor", api: "openai-responses" }
+		]
+	});
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/models-check").handler({}, res);
+	const body = JSON.parse(res.body);
+	assert.equal(body.ok, true);
+	assert.equal(body.checked, 3, "every enabled model is probed, not one per wire");
+	assert.deepEqual(body.unavailable, ["union-alpha"]);
+	assert.deepEqual(body.blocked, ["muse-spark-1.3-contributor"]);
+	const byId = new Map(body.checks.map((check) => [check.model, check.availability]));
+	assert.equal(byId.get("glm-5.3-flash"), "available", "a validation refusal means the model answered");
+	assert.equal(byId.get("union-alpha"), "unavailable");
+	assert.equal(byId.get("muse-spark-1.3-contributor"), "blocked");
+	// a retired model must never be reported as merely blocked, or the card
+	// would invite the user to fix a policy that is not the problem
+	assert.equal(body.blocked.includes("union-alpha"), false);
+});
+
+test("models-fetch falls back to the stored entry for an undocumented model", async (t) => {
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (init?.method === "POST") return { ok: false, status: 400, headers: new Map(), async text() { return "{}"; } };
+		if (String(url).includes("models.dev")) {
+			return { ok: true, status: 200, headers: new Map(), async json() { return MODELS_DEV_FIXTURE; } };
+		}
+		return { ok: true, status: 200, headers: new Map(), async json() { return { data: [{ id: "ghost-model" }, { id: "glm-5.3-flash" }] }; } };
+	});
+	const { routes } = host({
+		// the stored entry still records what the catalog no longer says
+		models: [
+			{ id: "ghost-model", api: "anthropic-messages", name: "Ghost", contextWindow: 111111, maxTokens: 2222, input: ["text", "image"], reasoning: true }
+		]
+	});
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/models-fetch").handler({}, res);
+	const body = JSON.parse(res.body);
+	const ghost = body.candidates.find((c) => c.id === "ghost-model");
+	const documented = body.candidates.find((c) => c.id === "glm-5.3-flash");
+	// the whole point: a live-but-undocumented model must not render blank
+	assert.equal(ghost.api, "anthropic-messages");
+	assert.equal(ghost.contextWindow, 111111);
+	assert.deepEqual(ghost.input, ["text", "image"]);
+	assert.equal(ghost.undocumented, true);
+	// and a documented one is not marked
+	assert.equal(documented.undocumented, undefined);
+	assert.equal(documented.api, "openai-completions");
+});
+
 /**
  * A minimal hook runtime for the hand-written card: synchronous re-render, so
  * a dispatched event's effect on the rendered tree can be asserted directly.
@@ -989,6 +1078,7 @@ async function mountCardWithCandidates(data) {
 			return {
 				ok: true, provider: "opencode-go-plus", configured: data.configured.length,
 				models: data.configured, modelSource: "selected", fromCatalog: false, stale: [],
+				undocumented: data.undocumented ?? [],
 				conflicts: data.conflicts ?? []
 			};
 		}
@@ -1008,6 +1098,14 @@ async function mountCardWithCandidates(data) {
 				ok: true, baseURL: "https://example.test/v1", apiKeyEnv: "OPENCODE_GO_API_KEY",
 				ms: 12, models: 1,
 				checks: [{ ok: true, status: 400, api: "openai-completions", model: "glm-5.3-flash", verdict: "accepted", detail: "messages must not be empty" }]
+			};
+		}
+		if (url.endsWith("/models-check")) {
+			return {
+				ok: true, ms: 30, checked: 2,
+				unavailable: data.unavailable ?? [],
+				blocked: [],
+				checks: []
 			};
 		}
 		return { ok: false, error: `unexpected ${url}` };
@@ -1362,11 +1460,75 @@ test("the card renders with the connection and model controls", async () => {
 	walk(tree);
 	assert.deepEqual(inputs, ["Gateway URL", "API key"]);
 	// the apply button only appears once candidates are fetched
-	assert.deepEqual(buttons, ["Save", "Test connection", "Fetch available models"]);
+	assert.deepEqual(buttons, ["Save", "Test connection", "Fetch available models", "Check model availability"]);
 	// and the line that answers "must I save before testing?"
 	const hints = findAll(tree, (node) => typeof node.props?.children === "string"
 		&& node.props.children.includes("saving first is not required"));
 	assert.equal(hints.length, 1, "the Save/Test hint must be rendered");
+});
+
+test("the card warns about an enabled model the catalog dropped", async () => {
+	// The free, request-less half of the retired-model story: union-alpha sat in
+	// the gateway listing long after the catalog stopped documenting it, and
+	// saying so costs nothing on every card load.
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"],
+		undocumented: ["union-alpha"]
+	});
+	try {
+		const warn = findAll(card.tree, (node) => typeof node.props?.children === "string"
+			&& node.props.children.includes("possibly retired"));
+		assert.equal(warn.length, 1, "the undocumented warning must render");
+		assert.match(warn[0].props.children, /union-alpha/);
+	} finally {
+		card.restoreFetch();
+	}
+});
+
+test("the card reports a retired model and can drop it from the selection", async () => {
+	// union-alpha's real situation: enabled, still advertised by the gateway,
+	// reported unavailable by the provider. The card must say so and offer to
+	// take it out of the selection.
+	const card = await mountCardWithCandidates({
+		candidates: CANDIDATES,
+		configured: ["glm-5.3-flash", "union-alpha"],
+		unavailable: ["union-alpha"]
+	});
+	try {
+		buttonByLabel(card.tree, "Check model availability").props.onClick();
+		await settle();
+
+		// the result names the model rather than reporting a bare failure
+		const line = findAll(card.tree, (node) => {
+			const children = node.props?.children;
+			const text = Array.isArray(children)
+				? children.filter((child) => typeof child === "string").join(" ")
+				: children;
+			return typeof text === "string" && text.includes("no longer serves them");
+		});
+		assert.equal(line.length, 1, "the retired model must be named");
+		const lineText = [].concat(line[0].props.children).filter((child) => typeof child === "string").join(" ");
+		assert.match(lineText, /union-alpha/);
+
+		// and it is still selected at this point — nothing is written silently
+		const boxes = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox");
+		const before = boxes.filter((box) => box.props.checked).length;
+		assert.equal(before, 2, "both start selected");
+
+		buttonByLabel(card.tree, "Remove these models").props.onClick();
+		await settle();
+
+		const after = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox")
+			.filter((box) => box.props.checked).length;
+		assert.equal(after, 1, "the retired model is deselected");
+		// removal edits the selection only; the apply button is what writes it
+		const dropped = findAll(card.tree, (node) => typeof node.props?.children === "string"
+			&& node.props.children.includes("Enable selected"));
+		assert.equal(dropped.length, 1, "the change still needs an explicit apply");
+	} finally {
+		card.restoreFetch();
+	}
 });
 
 test("the card's Test connection sends the typed values and says they are unsaved", async () => {
