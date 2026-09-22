@@ -200,3 +200,98 @@ test("a chat request carries the configured timeout", async () => {
 	}
 	assert.equal(seen.length, 1);
 });
+
+// DeepSeek-style thinking endpoints reject a thinking request whose assistant
+// history lacks `reasoning_content`, so the adapter must replay durable
+// reasoning blocks into pi-ai thinking parts — on openai-completions ONLY.
+
+test("openai-completions replays reasoning as a thinking part carrying reasoning_content", async () => {
+	const { toPiContext } = await import("../lib/pi-wire.js");
+	const options = {
+		model: "deepseek-v4.1-flash",
+		messages: [
+			{ id: "m1", role: "user", content: [{ type: "text", text: "q" }], source: { kind: "user" } },
+			{ id: "m2", role: "assistant", content: [
+				{ type: "reasoning", text: "the chain of thought" },
+				{ type: "text", text: "answer" }
+			] }
+		]
+	};
+	const context = toPiContext({ options, images: new Map(), api: "openai-completions", provider: "opencode-go-plus" });
+	const assistant = context.messages.find((message) => message.role === "assistant");
+	const thinking = assistant.content.find((block) => block.type === "thinking");
+	assert.ok(thinking, "reasoning block must be replayed as a thinking part");
+	assert.equal(thinking.thinking, "the chain of thought");
+	assert.equal(thinking.thinkingSignature, "reasoning_content");
+});
+
+test("anthropic-messages does NOT replay reasoning (the signature field means a native signature there)", async () => {
+	const { toPiContext } = await import("../lib/pi-wire.js");
+	const options = {
+		model: "union-alpha",
+		messages: [
+			{ id: "m1", role: "user", content: [{ type: "text", text: "q" }], source: { kind: "user" } },
+			{ id: "m2", role: "assistant", content: [
+				{ type: "reasoning", text: "the chain of thought" },
+				{ type: "text", text: "answer" }
+			] }
+		]
+	};
+	const context = toPiContext({ options, images: new Map(), api: "anthropic-messages", provider: "opencode-go-plus" });
+	const assistant = context.messages.find((message) => message.role === "assistant");
+	assert.ok(!assistant.content.some((block) => block.type === "thinking"), "no forged thinking signature on the anthropic wire");
+});
+
+test("deepseek completions models declare requiresReasoningContentOnAssistantMessages; others do not", async () => {
+	const { toPiModel } = await import("../lib/pi-wire.js");
+	const deepseek = toPiModel({
+		id: "deepseek-v4.1-flash",
+		resolved: { api: "openai-completions", reasoning: true, efforts: ["max"], offWire: null, input: ["text"] },
+		baseURL: "https://relay.example.test/v1",
+		provider: "opencode-go-plus"
+	});
+	assert.equal(deepseek.compat.requiresReasoningContentOnAssistantMessages, true);
+	const glm = toPiModel({
+		id: "glm-5.3-flash",
+		resolved: { api: "openai-completions", reasoning: true, efforts: ["high"], offWire: null, input: ["text"] },
+		baseURL: "https://relay.example.test/v1",
+		provider: "opencode-go-plus"
+	});
+	assert.equal(glm.compat.requiresReasoningContentOnAssistantMessages, undefined);
+});
+
+test("the serialized openai-completions body carries the replayed reasoning_content", async () => {
+	const { OpenCodeGoAdapter } = await import("../lib/adapter.js");
+	const modelId = "deepseek-v4.1-flash";
+	const bodies = [];
+	const original = globalThis.fetch;
+	globalThis.fetch = async (input, init) => {
+		const request = new Request(input, init);
+		bodies.push(await request.json());
+		return new Response(successStream("openai-completions", modelId), { headers: { "content-type": "text/event-stream" } });
+	};
+	try {
+		const adapter = new OpenCodeGoAdapter({
+			options: () => ({
+				providerRoute: "opencode-go-plus", baseURL: "https://gateway.example.test/v1", apiKeyEnv: "K",
+				modelSource: "selected", defaultContextWindow: 262144, defaultMaxTokens: 32768,
+				models: [{ id: modelId, api: "openai-completions", reasoning: true, efforts: ["high"], input: ["text"] }]
+			}),
+			resolveApiKey: async () => "sk-test"
+		});
+		for await (const _chunk of adapter.stream({
+			provider: "opencode-go-plus", model: modelId, reasoningEffort: "high",
+			messages: [
+				{ id: "m1", role: "user", content: [{ type: "text", text: "q" }], source: { kind: "user" } },
+				{ id: "m2", role: "assistant", content: [
+					{ type: "reasoning", text: "kept reasoning" },
+					{ type: "text", text: "answer" }
+				] }
+			]
+		})) { /* drain */ }
+	} finally {
+		globalThis.fetch = original;
+	}
+	const assistant = bodies[0].messages.find((message) => message.role === "assistant");
+	assert.equal(assistant.reasoning_content, "kept reasoning");
+});
