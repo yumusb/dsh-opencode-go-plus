@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode GO Plus",
+    "description": "将 OpenCode GO 作为独立 LLM 提供商使用；可配置网关、凭据和启用的模型，不会改动 llm-pi-ai。"
+  }
+}

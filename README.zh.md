@@ -6,7 +6,20 @@ DSH 的 OpenCode GO 插件。模型清单和能力都是实时读的，不依赖
 
 它有自己的路由，可以和已有的 OpenCode GO 路由并存，方便对比。迁移见[下文](#怎么从自带的那条迁移过来)。
 
-适用 DSH `0.1.6-alpha.1`。
+## DSH 兼容性
+
+同一个包同时支持两代 DSH 设置接口；它会在运行时检测宿主 API，所以不用另装“旧版
+DSH 专用包”。
+
+| DSH 宿主 | 已支持并验证的基线版本 | 配置行为 |
+|---|---|---|
+| 旧 Settings 接口 | `0.1.6-alpha.1` | 保留 `settings.installSection()`、`settings.get()` / `settings.update()`，并注册旧版 `settings.plugin.item` 配置卡。 |
+| Loader Config 接口 | `0.1.7-alpha.1` | 读取 Loader entry，通过 `configEditor` 保存，并注册当前的 `plugins.bundle.config` 配置卡。 |
+
+Schema 刻意不使用只有新版才有的 `.volatile()` 字段，因此
+`0.1.6-alpha.1` 随附的旧 Schemastery 也能加载。后续 `0.1.x` 宿主只要仍保留
+Loader Config 接口，就会自动走新版路径。包内也提供了中英文 Plugin Manager
+元数据；不读取这些资源的旧宿主会安全回退到 `package.json` 的英文说明。
 
 ## 为什么不直接用 DSH 自带的？
 
@@ -39,7 +52,7 @@ DSH 自带一个 LLM 适配器 `llm-pi-ai`（包名 `@deepseek-ai/dsh-llm-pi-ai`
 - **不动 DSH 的文件。** 网关不认没有 `x-opencode-session` 的请求（HTTP 400）。会话 ID 由适配器自己发，不用装 fetch 包装，升级也不会被覆盖。
 - **一张卡片全搞定。** 网关地址、API key、真能验出 key 对不对的连接测试、模型启用清单，带搜索、筛选、全选/反选和未保存提示。
 - **能发现重复路由。** 要是在别处也配了 OpenCode GO，模型在选择器里会出现两次，卡片认得出并可以一键删掉多的那条。
-- **中英双语。** 卡片文字和选择器里的能力标记跟着 DSH 的语言走。
+- **中英双语。** Plugin Manager 说明、卡片文字和选择器里的能力标记都跟着 DSH 的语言走。
 
 ## 工作原理
 

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">OpenCode GO Plus</title>
+  <desc id="desc">An OpenCode GO route icon with a plus sign and connected nodes.</desc>
+  <defs>
+    <linearGradient id="plus-gradient" x1="22" y1="18" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="plus-glow" x="6" y="6" width="116" height="116" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="#0F172A"/>
+  <rect x="5" y="5" width="118" height="118" rx="29" stroke="#334155" stroke-width="2"/>
+  <path d="M31 72C31 49 48 32 71 32c10 0 19 4 26 10" stroke="url(#plus-gradient)" stroke-width="9" stroke-linecap="round"/>
+  <path d="M97 56c0 23-17 40-40 40-10 0-19-4-26-10" stroke="url(#plus-gradient)" stroke-width="9" stroke-linecap="round"/>
+  <path d="M64 38v52M38 64h52" stroke="#E0F2FE" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="31" cy="72" r="8" fill="#38BDF8"/>
+  <circle cx="97" cy="56" r="8" fill="#8B5CF6"/>
+  <circle cx="64" cy="64" r="20" fill="#A78BFA" fill-opacity=".16" filter="url(#plus-glow)"/>
+</svg>

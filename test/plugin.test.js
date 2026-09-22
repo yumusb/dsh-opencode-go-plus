@@ -46,7 +46,7 @@ const MODELS_DEV_FIXTURE = {
 	}
 };
 
-function host({ credential = "secret", registered = [], models = [{ id: "deepseek-v4-flash" }], configurable = [], userSections = {} } = {}) {
+function host({ credential = "secret", registered = [], models = [{ id: "deepseek-v4-flash" }], configurable = [], userSections = {}, settingsApi = "legacy" } = {}) {
 	storedCredentials = [];
 	// The mount fetches metadata in the background. Answer models.dev locally so
 	// tests are hermetic and stored entries pick up their wire protocol, while
@@ -72,6 +72,8 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 	const adapters = [];
 	const directory = [];
 	const discoveries = [];
+	const configEdits = [];
+	const presentations = [];
 	/** Hooks the plugin installed; the stub seam fires them like the real one. */
 	let sectionHooks = null;
 	const userSection = {
@@ -79,7 +81,48 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 		baseURL: "https://gateway.example.test/v1",
 		models
 	};
+	let editorConfig = structuredClone(userSection);
 	let source = () => userSection;
+	const replace = async (ns, section, revision) => {
+		replaced.push({ ns, section, revision });
+		// a real commit is visible to the next read, so mirror that here —
+		// otherwise a re-scan after removal would still see the old route
+		userSections[ns] = section;
+	};
+	const legacySettings = {
+		register() {},
+		describe() { return describeResult; },
+		replace,
+		get(ns) {
+			if (ns === "locale") return { preference: "en" };
+			return userSections[ns];
+		},
+		async update(ns, patch) {
+			updates.push({ ns, patch });
+			Object.assign(userSection, patch);
+			// the real seam emits onChange after every committed change
+			sectionHooks?.onChange?.();
+		},
+		installSection(owner, ns, schema, entry, hooks) {
+			sectionHooks = hooks;
+			hooks.setSource(source);
+			hooks.onChange?.();
+		}
+	};
+	const modernSettings = {
+		configure(presentation) {
+			presentations.push(presentation);
+			return () => {};
+		},
+		describe() {
+			return [{ ns: "locale", value: { preference: "en" }, user: {}, revision: 1 }, ...describeResult];
+		},
+		replace,
+		async update() {
+			throw new Error("ordinary Loader Config must use configEditor on modern DSH");
+		}
+	};
+	const entry = { id: namespace, options: { id: namespace } };
 	const ctx = {
 		effect(run) { return run(); },
 		get(service) { return services.get(service); },
@@ -130,31 +173,7 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 			// the directory the conflict scan walks
 			listConfigurableProviders() { return configurable; }
 		},
-		settings: {
-			register() {},
-			describe() { return describeResult; },
-			async replace(ns, section, revision) {
-				replaced.push({ ns, section, revision });
-				// a real commit is visible to the next read, so mirror that here —
-				// otherwise a re-scan after removal would still see the old route
-				userSections[ns] = section;
-			},
-			get(ns) {
-				if (ns === "locale") return { preference: "en" };
-				return userSections[ns];
-			},
-			async update(ns, patch) {
-				updates.push({ ns, patch });
-				Object.assign(userSection, patch);
-				// the real seam emits onChange after every committed change
-				sectionHooks?.onChange?.();
-			},
-			installSection(owner, ns, schema, entry, hooks) {
-				sectionHooks = hooks;
-				hooks.setSource(source);
-				hooks.onChange?.();
-			}
-		},
+		settings: settingsApi === "modern" ? modernSettings : legacySettings,
 		webServer: {
 			register(route) { routes.set(route.path, route); return () => routes.delete(route.path); },
 			tapIndex() { return () => {}; }
@@ -163,19 +182,34 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 			register(command) { commands.set(command.name, command); return () => commands.delete(command.name); }
 		}
 	};
+	if (settingsApi === "modern") ctx.fiber = { entry };
+	const configEditor = {
+		async edit(target, change) {
+			assert.equal(target, entry);
+			const next = change(structuredClone(editorConfig), {});
+			editorConfig = structuredClone(next);
+			configEdits.push(structuredClone(next));
+		}
+	};
 	const services = new Map([
 		// the host reaches optional services through ctx.get(name)
-		["credentials", ctx.credentials]
+		["credentials", ctx.credentials],
+		...(settingsApi === "modern" ? [["configEditor", configEditor]] : [])
 	]);
-	apply(ctx);
+	apply(ctx, settingsApi === "modern" ? editorConfig : undefined);
 	return {
-		routes, commands, updates, adapters, directory, discoveries, replaced, warnings,
+		routes, commands, updates, adapters, directory, discoveries, replaced, warnings, configEdits, presentations,
 		/** Restore `globalThis.fetch`, so a later test never inherits this mock. */
 		dispose() { globalThis.fetch = previousFetch; }
 	};
 }
 
 test("config schema is self-contained and reports invalid fields", () => {
+	// DSH 0.1.7's Settings scanner reads these Schemastery-facing properties
+	// even for a dependency-free Standard Schema before it decides there is no
+	// volatile form to expose.
+	assert.deepEqual(Config.meta, {});
+	assert.equal(Config.type, "custom");
 	const value = Config({});
 	assert.equal(value.providerRoute, "opencode-go-plus");
 	assert.equal(value.apiKeyEnv, "OPENCODE_GO_API_KEY");
@@ -658,6 +692,39 @@ test("config route reads and writes baseURL plus the key via credentials", async
 	// the key lands in the credentials seam, trimmed, never in settings
 	assert.deepEqual(storedCredentials, [["OPENCODE_GO_API_KEY", "sk-test"]]);
 	assert.equal("apiKey" in updates.at(-1).patch, false);
+});
+
+test("DSH 0.1.7 starts without installSection/get and persists ordinary Loader Config", async () => {
+	const mounted = host({ settingsApi: "modern" });
+	const { routes, updates, configEdits, presentations } = mounted;
+	assert.deepEqual(presentations, [{ auto: false }]);
+	assert.deepEqual(updates, [], "the modern Settings form writer must not receive ordinary Config fields");
+
+	const configRes = response();
+	await routes.get("/dsh-opencode-go-plus/config").handler({
+		method: "POST",
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ baseURL: "https://modern.example/v1" })));
+			if (ev === "end") fn();
+		}
+	}, configRes);
+	assert.equal(configRes.statusCode, 200);
+	assert.equal(JSON.parse(configRes.body).baseURL, "https://modern.example/v1");
+	assert.equal(configEdits.at(-1).baseURL, "https://modern.example/v1");
+
+	const modelsRes = response();
+	await routes.get("/dsh-opencode-go-plus/models-apply").handler({
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ ids: [] })));
+			if (ev === "end") fn();
+		}
+	}, modelsRes);
+	assert.equal(modelsRes.statusCode, 200);
+	assert.equal(configEdits.at(-1).baseURL, "https://modern.example/v1", "later edits preserve the current profile config");
+	assert.equal(configEdits.at(-1).modelSource, "selected");
+	assert.deepEqual(configEdits.at(-1).models, []);
+	assert.deepEqual(updates, []);
+	mounted.dispose();
 });
 
 test("config route refuses a malformed baseURL and a bad key ref", async () => {
@@ -1729,7 +1796,7 @@ test("the card's Test connection sends the typed values and says they are unsave
 	}
 });
 
-test("client bundles register the Plugins settings card", async () => {
+test("client bundles register legacy and current DSH plugin configuration cards", async () => {
 	const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 	let registration;
 	const context = {
@@ -1750,6 +1817,13 @@ test("client bundles register the Plugins settings card", async () => {
 			register(options, component) { registrations.push({ options, component }); return () => {}; }
 		}
 	});
-	assert.deepEqual(injected, ["settings.plugin.item"]);
-	assert.equal(registrations[0]?.options.key, "dsh-opencode-go-plus");
+	assert.deepEqual(injected, ["settings.plugin.item", "plugins.bundle.config"]);
+	assert.deepEqual(registrations.map(({ options }) => ({
+		name: options.name,
+		key: options.key,
+		locale: options.locale
+	})), [
+		{ name: "settings.plugin.item", key: "dsh-opencode-go-plus", locale: undefined },
+		{ name: "plugins.bundle.config", key: "dsh-opencode-go-plus", locale: "dsh-opencode-go-plus" }
+	]);
 });

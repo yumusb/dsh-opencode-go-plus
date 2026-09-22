@@ -1,15 +1,19 @@
 {
   "name": "dsh-opencode-go-plus",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "DSH plugin: standalone OpenCode GO LlmAdapter — owns its provider route outright (per-model wire protocol incl. union-alpha's anthropic-messages), manages models/context/modality/effort declarations in its own settings namespace, never touches llm-pi-ai",
+  "icon": "assets/opencode-go-plus.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
+    "assets/*.svg",
+    "locale/*.json",
     "lib",
     "cordis.patch.yml"
   ],

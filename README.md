@@ -6,7 +6,21 @@ An OpenCode GO provider for DSH whose **model list and capabilities are read liv
 
 It registers its own route, so it can run alongside an existing OpenCode GO route while you compare them — see [Migrating](#migrating-from-a-built-in-llm-pi-ai-route).
 
-Compatible with DSH `0.1.6-alpha.1`.
+## DSH compatibility
+
+One package supports both DSH settings generations; it detects the host API at
+runtime, so there is no separate “old DSH” build to install.
+
+| DSH host | Supported / verified baseline | Configuration behavior |
+|---|---|---|
+| Legacy Settings | `0.1.6-alpha.1` | Keeps `settings.installSection()`, `settings.get()` / `settings.update()`, and the legacy `settings.plugin.item` configuration card. |
+| Loader Config | `0.1.7-alpha.1` | Reads the Loader entry, saves through `configEditor`, and renders the current `plugins.bundle.config` card. |
+
+The schema deliberately avoids newer-only `.volatile()` fields, so the older
+Schemastery bundled with `0.1.6-alpha.1` can still load it. Later `0.1.x` hosts
+use the Loader Config path when they retain that interface. The package also
+ships English and Chinese Plugin Manager metadata; a host that does not read
+those resources falls back safely to the English `package.json` summary.
 
 ## Why not just use the built-in route?
 
@@ -39,7 +53,7 @@ That is why models on different protocols cannot share an `llm-pi-ai` route: you
 - **No DSH files patched.** The gateway rejects requests without `x-opencode-session` (HTTP 400); the adapter sends the real session id itself, so there is no `fetch` wrapper to install and nothing for an upgrade to overwrite.
 - **One card for everything** — gateway URL, API key, a connection test that actually validates the key, and the enabled-model list with search, filters, select-all/invert and a visible unsaved-changes state.
 - **Duplicate-route detection.** If another configured route resolves to the same gateway — typically `opencode-go` added through the built-in adapter — every shared model appears twice in the picker. The card detects that by endpoint and removes the redundant route in one click.
-- **Bilingual** — the card and the capability labels in the picker follow the harness language.
+- **Bilingual** — the Plugin Manager description, card and capability labels in the picker follow the harness language.
 
 ## How it works
 

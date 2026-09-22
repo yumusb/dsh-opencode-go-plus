@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode GO Plus",
+    "description": "Use OpenCode GO as a standalone LLM provider. Configure its gateway, credential, and enabled models without changing llm-pi-ai."
+  }
+}
