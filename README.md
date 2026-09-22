@@ -8,19 +8,25 @@ It registers its own route, so it can run alongside an existing OpenCode GO rout
 
 ## DSH compatibility
 
-One package supports both DSH settings generations; it detects the host API at
-runtime, so there is no separate “old DSH” build to install.
+One package supports both DSH configuration generations; it detects the host
+API at runtime, so there is no separate “old DSH” build to install. The
+**minimum supported DSH host is `0.1.0-rc.8`**; earlier releases are not
+supported.
 
-| DSH host | Supported / verified baseline | Configuration behavior |
-|---|---|---|
-| Legacy Settings | `0.1.6-alpha.1` | Keeps `settings.installSection()`, `settings.get()` / `settings.update()`, and the legacy `settings.plugin.item` configuration card. |
-| Loader Config | `0.1.7-alpha.1` | Reads the Loader entry, saves through `configEditor`, and renders the current `plugins.bundle.config` card. |
+| DSH host | Configuration behavior |
+|---|---|
+| Legacy Settings (`0.1.0-rc.8` through `0.1.6-alpha.2`) | Uses `settings.register()` / `get()` / `update()`. Hosts from `0.1.2` onward use `installSection()`; `0.1.0` / `0.1.1` stay synchronized through their Settings scope watcher. The legacy `settings.plugin.item` configuration card appears when the host exposes that slot. |
+| Loader Config (`0.1.7-alpha.1`, `0.1.7-alpha.2`) | Reads the Loader entry, saves through `configEditor`, and renders the current `plugins.bundle.config` card. |
 
-The schema deliberately avoids newer-only `.volatile()` fields, so the older
-Schemastery bundled with `0.1.6-alpha.1` can still load it. Later `0.1.x` hosts
-use the Loader Config path when they retain that interface. The package also
-ships English and Chinese Plugin Manager metadata; a host that does not read
-those resources falls back safely to the English `package.json` summary.
+The schema deliberately avoids newer-only `.volatile()` fields, so the
+Schemastery bundled with the earliest legacy host can still load it. DSH 0.1.0
+and 0.1.1 do not export two optional image/tool-call helpers; this plugin uses
+their native plain-string / attachment-mapper behavior there, so text and tool
+calls remain usable. A later DSH prerelease is supported only while it retains
+one of the two interfaces above; prerelease APIs are not assumed stable. The
+package also ships English and Chinese Plugin Manager metadata; a host that
+does not read those resources falls back safely to the English `package.json`
+summary.
 
 ## Why not just use the built-in route?
 
@@ -87,7 +93,7 @@ There is no built-in model table. The card writes **complete** entries back to s
 ## Requirements
 
 - DSH installed, `web` profile booted at least once
-- Node.js ≥ 18
+- Node.js ≥ 22.19.0 (required by `@earendil-works/pi-ai`)
 - An OpenCode GO subscription and its API key
 
 ## Install

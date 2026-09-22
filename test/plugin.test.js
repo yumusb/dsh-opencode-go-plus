@@ -83,6 +83,14 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 	};
 	let editorConfig = structuredClone(userSection);
 	let source = () => userSection;
+	let legacyScopeSchema;
+	let legacyScopeBase;
+	let legacyScopeValue;
+	const legacyScopeWatchers = new Set();
+	const resolveLegacyScope = () => legacyScopeSchema({
+		...(legacyScopeBase ?? {}),
+		...userSection
+	});
 	const replace = async (ns, section, revision) => {
 		replaced.push({ ns, section, revision });
 		// a real commit is visible to the next read, so mirror that here —
@@ -107,6 +115,35 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 			sectionHooks = hooks;
 			hooks.setSource(source);
 			hooks.onChange?.();
+		}
+	};
+	const legacyRegisterOnlySettings = {
+		register(ns, schema, options) {
+			assert.equal(ns, namespace);
+			legacyScopeSchema = schema;
+			legacyScopeBase = options?.base;
+			legacyScopeValue = resolveLegacyScope();
+			return {
+				get() { return legacyScopeValue; },
+				watch(callback) {
+					legacyScopeWatchers.add(callback);
+					return () => legacyScopeWatchers.delete(callback);
+				}
+			};
+		},
+		describe() { return describeResult; },
+		replace,
+		get(ns) {
+			if (ns === "locale") return { preference: "en" };
+			return ns === namespace ? legacyScopeValue : userSections[ns];
+		},
+		async update(ns, patch) {
+			updates.push({ ns, patch });
+			if (ns !== namespace) return;
+			const previous = legacyScopeValue;
+			Object.assign(userSection, patch);
+			legacyScopeValue = resolveLegacyScope();
+			for (const watcher of legacyScopeWatchers) watcher(legacyScopeValue, previous);
 		}
 	};
 	const modernSettings = {
@@ -173,7 +210,11 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 			// the directory the conflict scan walks
 			listConfigurableProviders() { return configurable; }
 		},
-		settings: settingsApi === "modern" ? modernSettings : legacySettings,
+		settings: settingsApi === "modern"
+			? modernSettings
+			: settingsApi === "legacy-register-only"
+				? legacyRegisterOnlySettings
+				: legacySettings,
 		webServer: {
 			register(route) { routes.set(route.path, route); return () => routes.delete(route.path); },
 			tapIndex() { return () => {}; }
@@ -199,6 +240,7 @@ function host({ credential = "secret", registered = [], models = [{ id: "deepsee
 	apply(ctx, settingsApi === "modern" ? editorConfig : undefined);
 	return {
 		routes, commands, updates, adapters, directory, discoveries, replaced, warnings, configEdits, presentations,
+		settings: ctx.settings,
 		/** Restore `globalThis.fetch`, so a later test never inherits this mock. */
 		dispose() { globalThis.fetch = previousFetch; }
 	};
@@ -253,6 +295,19 @@ test("the plugin registers its adapter and command, and stays out of the officia
 	// picker reads the adapter registry instead, so nothing is lost.
 	assert.deepEqual(directory, []);
 	assert.deepEqual(discoveries, []);
+});
+
+test("DSH 0.1.0 legacy Settings without installSection stays synchronized", async () => {
+	const mounted = host({ settingsApi: "legacy-register-only" });
+	assert.deepEqual(mounted.adapters[0]?.routes, ["opencode-go"]);
+
+	await mounted.settings.update(namespace, { providerRoute: "legacy-go" });
+	assert.deepEqual(mounted.adapters[0]?.routes, ["legacy-go"]);
+	assert.deepEqual(mounted.updates.at(-1), {
+		ns: namespace,
+		patch: { providerRoute: "legacy-go" }
+	});
+	mounted.dispose();
 });
 
 test("a configured route owned by another adapter never crashes the plugin", () => {
@@ -609,6 +664,7 @@ test("cordis inject guard: apply, every route and the command touch only declare
 			listConfigurableProviders: () => []
 		},
 		settings: {
+			register() {},
 			installSection(owner, ns, schema, entry, hooks) {
 				hooks.setSource(() => ({ providerRoute: "opencode-go-plus", baseURL: "https://example.test/v1", models: [] }));
 				hooks.onChange?.();

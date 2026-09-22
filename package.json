@@ -1,6 +1,6 @@
 {
   "name": "dsh-opencode-go-plus",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "DSH plugin: standalone OpenCode GO LlmAdapter — owns its provider route outright (per-model wire protocol incl. union-alpha's anthropic-messages), manages models/context/modality/effort declarations in its own settings namespace, never touches llm-pi-ai",
   "icon": "assets/opencode-go-plus.svg",
   "type": "module",
@@ -31,15 +31,15 @@
     "cordis"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22.19.0"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.85.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.6-alpha.1",
-    "@deepseek-ai/dsh-launch-environment": "^0.1.6-alpha.1",
-    "@deepseek-ai/dsh-llm": "^0.1.6-alpha.1"
+    "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.8 <0.2.0 || >=0.1.1-0 <0.2.0 || >=0.1.2-0 <0.2.0 || >=0.1.3-0 <0.2.0 || >=0.1.4-0 <0.2.0 || >=0.1.5-0 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0",
+    "@deepseek-ai/dsh-launch-environment": ">=0.1.0-rc.8 <0.2.0 || >=0.1.1-0 <0.2.0 || >=0.1.2-0 <0.2.0 || >=0.1.3-0 <0.2.0 || >=0.1.4-0 <0.2.0 || >=0.1.5-0 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.8 <0.2.0 || >=0.1.1-0 <0.2.0 || >=0.1.2-0 <0.2.0 || >=0.1.3-0 <0.2.0 || >=0.1.4-0 <0.2.0 || >=0.1.5-0 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0"
   },
   "license": "MIT",
   "repository": "github:yumusb/dsh-opencode-go-plus",

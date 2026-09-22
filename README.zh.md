@@ -9,17 +9,19 @@ DSH 的 OpenCode GO 插件。模型清单和能力都是实时读的，不依赖
 ## DSH 兼容性
 
 同一个包同时支持两代 DSH 设置接口；它会在运行时检测宿主 API，所以不用另装“旧版
-DSH 专用包”。
+DSH 专用包”。**最低支持的 DSH 宿主版本是 `0.1.0-rc.8`**；更早版本不在支持范围内。
 
-| DSH 宿主 | 已支持并验证的基线版本 | 配置行为 |
-|---|---|---|
-| 旧 Settings 接口 | `0.1.6-alpha.1` | 保留 `settings.installSection()`、`settings.get()` / `settings.update()`，并注册旧版 `settings.plugin.item` 配置卡。 |
-| Loader Config 接口 | `0.1.7-alpha.1` | 读取 Loader entry，通过 `configEditor` 保存，并注册当前的 `plugins.bundle.config` 配置卡。 |
+| DSH 宿主 | 配置行为 |
+|---|---|
+| 旧 Settings 接口（`0.1.0-rc.8` 至 `0.1.6-alpha.2`） | 使用 `settings.register()` / `get()` / `update()`。`0.1.2` 起使用 `installSection()`；`0.1.0` / `0.1.1` 则通过 Settings scope watcher 保持同步。宿主提供该槽位时，显示旧版 `settings.plugin.item` 配置卡。 |
+| Loader Config 接口（`0.1.7-alpha.1`、`0.1.7-alpha.2`） | 读取 Loader entry，通过 `configEditor` 保存，并渲染当前的 `plugins.bundle.config` 配置卡。 |
 
-Schema 刻意不使用只有新版才有的 `.volatile()` 字段，因此
-`0.1.6-alpha.1` 随附的旧 Schemastery 也能加载。后续 `0.1.x` 宿主只要仍保留
-Loader Config 接口，就会自动走新版路径。包内也提供了中英文 Plugin Manager
-元数据；不读取这些资源的旧宿主会安全回退到 `package.json` 的英文说明。
+Schema 刻意不使用只有新版才有的 `.volatile()` 字段，因此最早旧版宿主随附的
+Schemastery 也能加载。DSH 0.1.0 / 0.1.1 没有导出两个可选的图像/工具调用 helper；
+插件会使用它们原生的普通字符串 / 附件映射行为，因此文本和工具调用仍可使用。后续
+DSH 预发布版只有在仍保留上述两类接口之一时才承诺支持；预发布 API 不视为稳定。
+包内也提供了中英文 Plugin Manager 元数据；不读取这些资源的旧宿主会安全回退到
+`package.json` 的英文说明。
 
 ## 为什么不直接用 DSH 自带的？
 
@@ -90,7 +92,7 @@ ctx.llm.registerAdapter([providerRoute], OpenCodeGoAdapter)
 ## 环境要求
 
 - 装好 DSH，`web` profile 至少启动过一次
-- Node.js ≥ 18
+- Node.js ≥ 22.19.0（`@earendil-works/pi-ai` 的要求）
 - OpenCode GO 订阅和 API key
 
 ## 安装
