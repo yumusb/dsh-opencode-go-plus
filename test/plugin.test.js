@@ -1562,6 +1562,36 @@ test("scope filter and bulk actions cover enabled/disabled views", async () => {
 	assert.deepEqual(checkedIds(card.tree).sort(), ["deepseek-v4.1-flash", "union-alpha"]);
 });
 
+test("multimodal filter combines with status and bulk selection", async () => {
+	const textOnly = { id: "text-only", name: "Text Only", input: ["text"], enabled: true };
+	const card = await mountCardWithCandidates({
+		candidates: [...CANDIDATES, textOnly],
+		configured: ["glm-5.3-flash", "omen-alpha", "text-only"]
+	});
+
+	const multimodal = buttonByLabel(card.tree, "Multimodal");
+	assert.equal(multimodal.props["aria-pressed"], false);
+	multimodal.props.onClick();
+	assert.equal(buttonByLabel(card.tree, "Multimodal").props["aria-pressed"], true);
+	assert.equal(findAll(card.tree, (n) => n.type === "label" && n.props.className === "ocgp-cand").length, 4);
+
+	// Capability and status filters are independent and compose.
+	pressScope(card, "Disabled");
+	assert.equal(findAll(card.tree, (n) => n.type === "label" && n.props.className === "ocgp-cand").length, 2);
+	buttonByLabel(card.tree, "Select shown").props.onClick();
+	pressScope(card, "All");
+	// The text-only model remains selected but is hidden while the capability
+	// filter is active; turn the filter off to inspect the whole draft.
+	buttonByLabel(card.tree, "Multimodal").props.onClick();
+	assert.deepEqual(checkedIds(card.tree).sort(), [
+		"deepseek-v4.1-flash",
+		"glm-5.3-flash",
+		"omen-alpha",
+		"text-only",
+		"union-alpha"
+	]);
+});
+
 test("unsaved changes are surfaced and can be discarded", async () => {
 	const card = await mountCardWithCandidates({ candidates: CANDIDATES, configured: ["glm-5.3-flash", "omen-alpha"] });
 	// nothing changed yet: no commit prompt, no discard affordance

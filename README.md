@@ -119,7 +119,7 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 | Model list | The gateway's live models, loaded when the card opens and ready to edit — no button needed first. Served models are pre-checked, and each row shows its context window, output cap and modalities. |
 | Refresh list | Re-reads the gateway's list, e.g. after models are added upstream. |
 | Check model availability | Probes **every enabled model** with one request each (any real model has to answer) and reports the ones the provider no longer serves, plus any blocked by policy or region. Each probe is rejected before generation, so it costs no tokens. |
-| Search + filter | Find by id or name; switch between all / enabled / disabled. Available once the list is editable. |
+| Search + filter | Find by id or name; combine all / enabled / disabled with a Multimodal filter. Available once the list is editable. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
 | Enable selected / Disable all | Writes exactly the checked ids. Unchecking everything is legal and disables every model. |
 
