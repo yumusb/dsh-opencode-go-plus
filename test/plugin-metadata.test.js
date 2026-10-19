@@ -18,9 +18,12 @@ test("package publishes DSH-localized Plus metadata", async () => {
 	assert.ok(manifest.files.includes("assets/*.svg"));
 	assert.match(icon, /^<svg\b/);
 	assert.ok(Buffer.byteLength(icon, "utf8") <= 256 * 1024);
-	assert.equal(manifest.version, "1.1.2");
+	assert.equal(manifest.version, "1.1.3");
 	assert.equal(typeof manifest.description, "string");
 	assert.equal(manifest.engines.node, ">=22.19.0");
+	// DSH >= 0.2 decides from `engines.dsh` alone and ignores peerDependencies.
+	// The range must admit the current 0.2 prerelease line and stop before 0.3.
+	assert.equal(manifest.engines.dsh, ">=0.1.0-rc.8 <0.3.0-0");
 	const dshPeerRange = ">=0.1.0-rc.8 <0.2.0 || >=0.1.1-0 <0.2.0 || >=0.1.2-0 <0.2.0 || >=0.1.3-0 <0.2.0 || >=0.1.4-0 <0.2.0 || >=0.1.5-0 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0";
 	for (const peer of [
 		"@deepseek-ai/dsh-credentials",
@@ -36,8 +39,10 @@ test("package publishes DSH-localized Plus metadata", async () => {
 	assert.match(readme, /`0\.1\.0-rc\.8`/);
 	assert.match(readme, /`0\.1\.7-alpha\.1`/);
 	assert.match(readme, /`0\.1\.7-alpha\.2`/);
+	assert.match(readme, /`0\.2\.1-rc\.2`/);
 	assert.match(readme, /Node\.js ≥ 22\.19\.0/);
 	assert.match(readmeZh, /## DSH 兼容性/);
 	assert.match(readmeZh, /`0\.1\.0-rc\.8`/);
+	assert.match(readmeZh, /`0\.2\.1-rc\.2`/);
 	assert.match(readmeZh, /Node\.js ≥ 22\.19\.0/);
 });

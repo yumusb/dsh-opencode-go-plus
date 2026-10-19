@@ -11,12 +11,20 @@ It registers its own route, so it can run alongside an existing OpenCode GO rout
 One package supports both DSH configuration generations; it detects the host
 API at runtime, so there is no separate “old DSH” build to install. The
 **minimum supported DSH host is `0.1.0-rc.8`**; earlier releases are not
-supported.
+supported. The current 0.2 prerelease line is supported as well and is
+verified against `0.2.1-rc.2`.
+
+DSH 0.2 and later read a plugin's `engines.dsh` range — that field alone
+decides, and `peerDependencies` are ignored — so this package declares
+`"engines": { "dsh": ">=0.1.0-rc.8 <0.3.0-0" }`. DSH 0.1.x predates
+`engines.dsh` and keeps reading the `@deepseek-ai/dsh-*` `peerDependencies`;
+those ranges stay restricted to the 0.1 line they were written for. Both
+declarations describe the same support window.
 
 | DSH host | Configuration behavior |
 |---|---|
 | Legacy Settings (`0.1.0-rc.8` through `0.1.6-alpha.2`) | Uses `settings.register()` / `get()` / `update()`. Hosts from `0.1.2` onward use `installSection()`; `0.1.0` / `0.1.1` stay synchronized through their Settings scope watcher. The legacy `settings.plugin.item` configuration card appears when the host exposes that slot. |
-| Loader Config (`0.1.7-alpha.1`, `0.1.7-alpha.2`) | Reads the Loader entry, saves through `configEditor`, and renders the current `plugins.bundle.config` card. |
+| Loader Config (`0.1.7-alpha.1`, `0.1.7-alpha.2`, and `0.2.x`) | Reads the Loader entry, saves through `configEditor`, and renders the current `plugins.bundle.config` card. |
 
 The schema deliberately avoids newer-only `.volatile()` fields, so the
 Schemastery bundled with the earliest legacy host can still load it. DSH 0.1.0

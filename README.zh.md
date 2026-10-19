@@ -10,11 +10,18 @@ DSH 的 OpenCode GO 插件。模型清单和能力都是实时读的，不依赖
 
 同一个包同时支持两代 DSH 设置接口；它会在运行时检测宿主 API，所以不用另装“旧版
 DSH 专用包”。**最低支持的 DSH 宿主版本是 `0.1.0-rc.8`**；更早版本不在支持范围内。
+当前 0.2 预发布线同样支持，并已在 `0.2.1-rc.2` 上验证。
+
+DSH 0.2 及以后读取插件的 `engines.dsh` 范围——只看这一个字段，忽略
+`peerDependencies`——所以本包声明 `"engines": { "dsh": ">=0.1.0-rc.8 <0.3.0-0" }`。
+DSH 0.1.x 还没有 `engines.dsh`，仍读取 `@deepseek-ai/dsh-*` 的
+`peerDependencies`；那些范围保持只覆盖它们对应的 0.1 线。两种声明描述的是同一个
+支持窗口。
 
 | DSH 宿主 | 配置行为 |
 |---|---|
 | 旧 Settings 接口（`0.1.0-rc.8` 至 `0.1.6-alpha.2`） | 使用 `settings.register()` / `get()` / `update()`。`0.1.2` 起使用 `installSection()`；`0.1.0` / `0.1.1` 则通过 Settings scope watcher 保持同步。宿主提供该槽位时，显示旧版 `settings.plugin.item` 配置卡。 |
-| Loader Config 接口（`0.1.7-alpha.1`、`0.1.7-alpha.2`） | 读取 Loader entry，通过 `configEditor` 保存，并渲染当前的 `plugins.bundle.config` 配置卡。 |
+| Loader Config 接口（`0.1.7-alpha.1`、`0.1.7-alpha.2` 及 `0.2.x`） | 读取 Loader entry，通过 `configEditor` 保存，并渲染当前的 `plugins.bundle.config` 配置卡。 |
 
 Schema 刻意不使用只有新版才有的 `.volatile()` 字段，因此最早旧版宿主随附的
 Schemastery 也能加载。DSH 0.1.0 / 0.1.1 没有导出两个可选的图像/工具调用 helper；
