@@ -1,0 +1,8 @@
+{
+  "name": "@deepseek-ai/dsh-llm",
+  "version": "0.0.0-test-shim",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": { ".": "./index.js" }
+}

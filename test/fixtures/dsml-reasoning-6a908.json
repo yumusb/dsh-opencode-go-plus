@@ -1,0 +1,5 @@
+{
+  "_comment": "Problem A on the reasoning channel (session-6a908aa0 turn 1 step 2): one sentence of narration, then two DSML invokes. The narration must survive; the invokes must become tool calls.",
+  "channel": "reasoning",
+  "text": "先查一下项目结构和相关记录。\n\n<\uFF5CDSML\uFF5Cinvoke name=\"bash\">\n<\uFF5CDSML\uFF5Cparameter name=\"command\" string=\"true\">ls -la ~/Documents/AI</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n<\uFF5CDSML\uFF5Cinvoke name=\"session_search\">\n<\uFF5CDSML\uFF5Cparameter name=\"query\" string=\"true\">MCP 项目理解</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n"
+}

@@ -1,0 +1,12 @@
+我来看一下这两个问题，先确认当前插件安装状态。
+
+<｜DSML｜tool_calls>
+<｜DSML｜invoke name="bash">
+<｜DSML｜parameter name="command" string="true">Get-ChildItem "C:\Users\admin\.dsh\profiles\desktop\node_modules\dsh-opencode-go-plus\lib" | Select-Object Name</｜DSML｜parameter>
+</｜DSML｜invoke>
+<｜DSML｜invoke name="cordis_inspect_query">
+<｜DSML｜parameter name="query" string="true">llm-opencode-go</｜DSML｜parameter>
+<｜DSML｜parameter name="limit" string="false">5</｜DSML｜parameter>
+</｜DSML｜invoke>
+</｜DSML｜calls>
+<｜DSML｜parameter>

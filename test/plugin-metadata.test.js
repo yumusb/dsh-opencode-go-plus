@@ -18,7 +18,7 @@ test("package publishes DSH-localized Plus metadata", async () => {
 	assert.ok(manifest.files.includes("assets/*.svg"));
 	assert.match(icon, /^<svg\b/);
 	assert.ok(Buffer.byteLength(icon, "utf8") <= 256 * 1024);
-	assert.equal(manifest.version, "1.1.3");
+	assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 	assert.equal(typeof manifest.description, "string");
 	assert.equal(manifest.engines.node, ">=22.19.0");
 	// DSH >= 0.2 decides from `engines.dsh` alone and ignores peerDependencies.

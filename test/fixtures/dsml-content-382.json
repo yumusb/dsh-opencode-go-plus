@@ -1,0 +1,5 @@
+{
+  "_comment": "Problem A, text-channel sample (session-382a5746 turn 2): a whole DSML call written as prose, plus an isolated parameter shard. Marker characters are escaped so this file stays ASCII on disk.",
+  "channel": "text",
+  "text": "我来看一下这两个问题，先确认当前插件安装状态。\n\n<\uFF5CDSML\uFF5Ctool_calls>\n<\uFF5CDSML\uFF5Cinvoke name=\"bash\">\n<\uFF5CDSML\uFF5Cparameter name=\"command\" string=\"true\">Get-ChildItem \"C:\\\\Users\\\\admin\\\\.dsh\\\\profiles\\\\desktop\\\\node_modules\\\\dsh-opencode-go-plus\\\\lib\" | Select-Object Name</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n<\uFF5CDSML\uFF5Cinvoke name=\"cordis_inspect_query\">\n<\uFF5CDSML\uFF5Cparameter name=\"query\" string=\"true\">llm-opencode-go</\uFF5CDSML\uFF5Cparameter>\n<\uFF5CDSML\uFF5Cparameter name=\"limit\" string=\"false\">5</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cparameter>\n"
+}
