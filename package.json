@@ -13,6 +13,7 @@
   },
   "files": [
     "assets/*.svg",
+    "docs",
     "locale/*.json",
     "lib",
     "cordis.patch.yml"

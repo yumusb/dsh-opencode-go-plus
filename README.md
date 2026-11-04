@@ -67,6 +67,7 @@ That is why models on different protocols cannot share an `llm-pi-ai` route: you
 - **No DSH files patched.** The gateway rejects requests without `x-opencode-session` (HTTP 400); the adapter sends the real session id itself, so there is no `fetch` wrapper to install and nothing for an upgrade to overwrite.
 - **One card for everything** — gateway URL, API key, a connection test that actually validates the key, and the enabled-model list with search, filters, select-all/invert and a visible unsaved-changes state.
 - **Duplicate-route detection.** If another configured route resolves to the same gateway — typically `opencode-go` added through the built-in adapter — every shared model appears twice in the picker. The card detects that by endpoint and removes the redundant route in one click.
+- **Usage is one persistent ring at the sidebar foot (unreleased).** Bottom-right of the account row: top arc = 5 hours, bottom arc = the week, OpenCode's mark in the hole; opening it shows the 5-hour / weekly / monthly windows' used percentage and reset time, plus a one-line summary when you hover the avatar. Numbers come from the gateway's own `GET /v1/usage`; the key never leaves the host. Semantics: [`docs/quotas.md`](docs/quotas.md), visual proof: [`docs/usage-panel-demo.html`](docs/usage-panel-demo.html).
 - **Bilingual** — the Plugin Manager description, card and capability labels in the picker follow the harness language.
 
 ## How it works
@@ -145,6 +146,32 @@ Save and Test are independent: Save persists, Test only reads. Leaving the key f
 Either way, the card offers **Remove these models and save**, which commits the reduced selection immediately. The one exception is a list holding unapplied edits: then it asks you to commit or discard those first rather than overwriting them silently.
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
+
+### Usage (two-half ring + card)
+
+**One ring at the sidebar foot**, right-aligned with the account row.
+
+```text
+OpenCode Go usage                     ◠20%
+                                     ◡88%   ⌄
+    ┌ opened upward ──────────────────┐
+    │ OpenCode Go limits          ↗   │
+    │ 5 hours           20%    05:06  │
+    │ Weekly            88%    Nov 9  │
+    │ Monthly           46%    Dec 3  │
+    │ Updated 20:02                   │
+    └────────────────────────────────┘
+```
+
+- **The ring is the reading**: top arc = 5-hour window, bottom arc = week; arc length is usage, OpenCode's mark sits in the hole. **It is monochrome** (secondary text colour): length does the talking, and no hue asks for attention a passive glance does not deserve. When a window is spent (capped or at 100%) the whole ring drops to grey — that reads as "this one is empty", not "alarm".
+- **Hovering** a half thickens it and floats `20% 5h` / `88% wk`; **a click refreshes** and opens the card upward.
+- The **card opens above the ring**, right-aligned to it and clamped inside the viewport, so it never covers the sidebar's other rows. It lists the three windows with their reset instants; the `↗` in its header opens [opencode.ai/console](https://opencode.ai/console/) for the full picture (sign-in happens in the browser — the plugin never holds an account).
+- A **limit shows only in its own row** (replacing the reset time) and turns the ring grey; no extra tag.
+- With **no key or a rejected key**, the card footer offers a *plugin settings* hop (in-app, it selects the Plugins panel) instead of a password field inside a floating menu. OpenCode issues API keys only — there is no OAuth grant to fake a one-click login.
+- Text follows the harness language (`ctx.locale`); time formatting is `Intl`'s job, with no zh/en branch.
+- Refreshes **every 3 minutes** (paused while the page is hidden), plus one forced refresh when the card opens.
+- The card is mounted on `document.body`: the menu surface carries a `backdrop-filter`, which would become the containing block for a viewport-positioned layer nested inside it.
+- Visual proof: `docs/usage-panel-demo.html`, rendered from the real components (zh / en / de / ar, plus phone width).
 
 ## Config reference
 

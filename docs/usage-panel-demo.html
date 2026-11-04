@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Go 用量 · 账号菜单预览</title>
+<style>
+	/* A stand-in for the DSH shell: the same theme tokens, both colour schemes,
+	   so the inline styles in the component resolve exactly as they would there. */
+	:root {
+		color-scheme: dark;
+		--dsw-alias-bg-base: #17171a;
+		--dsw-alias-bg-layer-1: #232327;
+		--dsw-alias-bg-layer-2: rgba(255, 255, 255, 0.055);
+		--dsw-alias-bg-overlay: #2b2b31;
+		--dsw-alias-border-l1: rgba(255, 255, 255, 0.12);
+		--dsw-alias-label-primary: #ececf1;
+		--dsw-alias-label-secondary: #9b9ba4;
+		--dsw-alias-state-success-primary: #3fbe8a;
+		--dsw-alias-state-warn-primary: #d9a441;
+		--dsw-alias-state-error-primary: #e06b6b;
+		--dsw-specific-sidebar-fill: #1e1e22;
+	}
+	html[data-theme="light"] {
+		color-scheme: light;
+		--dsw-alias-bg-base: #f6f6f7;
+		--dsw-alias-bg-layer-1: #ffffff;
+		--dsw-alias-bg-layer-2: rgba(0, 0, 0, 0.045);
+		--dsw-alias-bg-overlay: #ffffff;
+		--dsw-alias-border-l1: rgba(0, 0, 0, 0.1);
+		--dsw-alias-label-primary: #1d1d20;
+		--dsw-alias-label-secondary: #6b6b74;
+		--dsw-alias-state-success-primary: #22a06b;
+		--dsw-alias-state-warn-primary: #b7791f;
+		--dsw-alias-state-error-primary: #c94444;
+		--dsw-specific-sidebar-fill: #ededee;
+	}
+	html {
+		font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+	}
+	html[data-theme="light"] .menu { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12); }
+	.theme-toggle { position: fixed; top: 18px; right: 20px; padding: 6px 10px; border-radius: 8px;
+		border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+		color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
+	body { margin: 0; padding: 28px 28px 40px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+	h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+	.lede { margin: 0 0 24px; font-size: 13px; color: var(--dsw-alias-label-secondary); max-width: 780px; line-height: 1.65; }
+	code { font-size: 12px; }
+	.grid { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+	.case { width: 580px; }
+	.case-head h2 { font-size: 13px; font-weight: 600; margin: 0 0 3px; }
+	.case-head p { font-size: 11.5px; color: var(--dsw-alias-label-secondary); margin: 0 0 10px; line-height: 1.5; min-height: 34px; }
+	.shell { position: relative; background: transparent; border: 0; padding: 0; }
+	.menu {
+		background: var(--dsw-alias-bg-overlay); border: 1px solid var(--dsw-alias-border-l1);
+		border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+	}
+	.ocgp-item {
+		box-sizing: border-box;
+		display: flex; align-items: center; gap: 8px; width: 100%;
+		padding: 8px 9px; border: 0; border-radius: 7px; background: transparent;
+		color: var(--dsw-alias-label-primary); font: inherit; font-size: 13.5px; line-height: 1.35;
+		text-align: left; cursor: pointer;
+	}
+	.ocgp-item:hover { background: rgba(127, 127, 127, 0.16); }
+	.ocgp-icon { display: inline-flex; width: 16px; height: 16px; color: var(--dsw-alias-label-secondary); flex: none; }
+	.ocgp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.hint { margin-left: auto; font-size: 11.5px; color: var(--dsw-alias-label-secondary); }
+	.divider { height: 1px; background: var(--dsw-alias-border-l1); margin: 5px 4px; }
+	.account { display: flex; align-items: center; gap: 9px; padding: 10px 6px 0; }
+	.avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(140deg, #f0b27a, #b06a3b); }
+	.account-name { font-size: 13.5px; }
+	.sidebar { position: relative; display: flex; flex-direction: column; gap: 2px; min-height: 260px;
+		background: var(--dsw-specific-sidebar-fill); border-radius: 10px; padding: 8px 0 4px; }
+	.sessions { display: flex; flex-direction: column; gap: 2px; flex: 1; padding: 6px 8px; }
+	.session { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 12.5px;
+		color: var(--dsw-alias-label-secondary); }
+	.session-title { color: var(--dsw-alias-label-primary); }
+	.session-time { margin-left: auto; font-size: 11px; }
+	.session.remote { padding: 8px 12px; border-top: 1px solid var(--dsw-alias-border-l1); }
+	.remote-icon { opacity: .7; }
+	.foot { display: flex; align-items: center; gap: 9px; padding: 8px 10px 10px; }
+	.ring-slot { display: inline-flex; align-items: center; margin-left: auto; padding-left: 8px; }
+	.card-slot { position: absolute; left: 276px; top: 26px; }
+	.section-title { font-size: 14px; font-weight: 600; margin: 34px 0 4px; }
+	.lede--tight { margin-bottom: 16px; max-width: 680px; }
+	.grid--phone { gap: 20px; }
+	.case--mobile { width: 420px; }
+	.case--mobile .ocgp-item { box-sizing: border-box; }
+	.shell--mobile { padding: 10px 8px 12px; }
+	.sidebar { width: 260px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+	<h1>OpenCode Go 用量 · 账号菜单预览</h1>
+	<p class="lede">
+		这个页面由 <code>tools/usage-demo.mjs</code> 用插件真实的 <code>UsageSection</code> 组件渲染成静态 HTML
+		（样式全部内联，跟随 <code>--dsw-alias-*</code> 主题变量，深色/浅色都生效）。
+		改完 <code>lib/client.js</code> 重新跑一次即可对照；它不是手工画的原型，所以看到的布局就是浏览器里会画的布局。
+	</p>
+	<div class="grid"><section class="case">
+	<header class="case-head"><h2>折叠（默认）</h2><p>名称左、双半圆环右：上弧 5 小时（20%），下弧一周（88%），中心是 OpenCode 标志；单色，只有弧长说话；悬停某半弧出「20% 5h」</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 80% · 周 12% · 月 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section><section class="case">
+	<header class="case-head"><h2>折叠：用量很低</h2><p>弧长即用量；全程单色（跟随文字的次要色），不抢注意力</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 98% · 周 94% · 月 97%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="98 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="94 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section><section class="case">
+	<header class="case-head"><h2>展开：三个窗口</h2><p>点一下从菜单右侧浮出卡片（预览里内联展示便于对比）：三窗口 + 「更新于」+ 右上角控制台图标</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 80% · 周 12% · 月 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		<div class="card-slot"><div id="ocgp-usage-card" role="group" aria-label="OpenCode Go 用量限制" data-ocgp="usage-card" style="position:static;z-index:2147483000;width:auto;max-width:calc(100vw - 16px);box-sizing:border-box;padding:8px;border-radius:var(--dsw-radius-lg, 12px);border:.5px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.28));box-shadow:var(--dsw-shadow-lv3, 0 10px 30px rgba(0, 0, 0, 0.32));font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary, CanvasText)"><div style="position:absolute;inset:0px;z-index:-1;border-radius:inherit;background:var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, #222));backdrop-filter:var(--dsw-menu-backdrop-filter, blur(20px));pointer-events:none" data-ocgp="usage-material" aria-hidden="true"></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:2px 8px 0"><span style="min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary, #8b8b8b)">OpenCode Go 用量限制</span><button type="button" style="flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0px;border:0px;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" title="在控制台打开" aria-label="在控制台打开" data-ocgp="usage-console"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9.5 3h3.5v3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L7.5 8.5" stroke-linecap="round"><path d="M12 9.8V13H3V4h3.2" stroke-linecap="round" stroke-linejoin="round"></svg></button></div><div style="display:grid;grid-template-columns:minmax(0, 1fr) auto auto;column-gap:8px;row-gap:0px;align-items:baseline" role="table" data-ocgp="usage-grid"><div style="display:contents" role="row" data-window="rolling" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="5 小时">5 小时</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">20%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/11/4 05:06:55">即将重置</span></div><div style="display:contents" role="row" data-window="weekly" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每周">每周</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">88%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/11/9 08:00:00">11月9日</span></div><div style="display:contents" role="row" data-window="monthly" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每月">每月</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">46%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/12/3 21:15:46">12月3日</span></div></div><div style="margin-top:4px;padding:0 8px 2px;font-size:11px;color:var(--dsw-alias-label-secondary, #8b8b8b);line-height:16px" data-ocgp="usage-freshness" aria-live="polite">更新于 {time}</div></div></div>
+	</div>
+	</div>
+</section><section class="case">
+	<header class="case-head"><h2>展开：只有「每周」到顶</h2><p>限额只出现在它自己那一行（替换重置时间），环降为灰显——「用完」而不是「报警」</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer;opacity:0.55" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 88% · 周 0% · 月 54%" data-ocgp="usage-ring-button" data-state="empty"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		<div class="card-slot"><div id="ocgp-usage-card" role="group" aria-label="OpenCode Go 用量限制" data-ocgp="usage-card" style="position:static;z-index:2147483000;width:auto;max-width:calc(100vw - 16px);box-sizing:border-box;padding:8px;border-radius:var(--dsw-radius-lg, 12px);border:.5px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.28));box-shadow:var(--dsw-shadow-lv3, 0 10px 30px rgba(0, 0, 0, 0.32));font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary, CanvasText)"><div style="position:absolute;inset:0px;z-index:-1;border-radius:inherit;background:var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, #222));backdrop-filter:var(--dsw-menu-backdrop-filter, blur(20px));pointer-events:none" data-ocgp="usage-material" aria-hidden="true"></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:2px 8px 0"><span style="min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary, #8b8b8b)">OpenCode Go 用量限制</span><button type="button" style="flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0px;border:0px;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" title="在控制台打开" aria-label="在控制台打开" data-ocgp="usage-console"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9.5 3h3.5v3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L7.5 8.5" stroke-linecap="round"><path d="M12 9.8V13H3V4h3.2" stroke-linecap="round" stroke-linejoin="round"></svg></button></div><div style="display:grid;grid-template-columns:minmax(0, 1fr) auto auto;column-gap:8px;row-gap:0px;align-items:baseline" role="table" data-ocgp="usage-grid"><div style="display:contents" role="row" data-window="rolling" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="5 小时">5 小时</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">12%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/11/4 05:06:55">即将重置</span></div><div style="display:contents" role="row" data-window="weekly" data-state="limited"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每周">每周</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">100%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);white-space:nowrap" title="2026/11/9 08:00:00">已达限额</span></div><div style="display:contents" role="row" data-window="monthly" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每月">每月</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">46%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/12/3 21:15:46">12月3日</span></div></div><div style="margin-top:4px;padding:0 8px 2px;font-size:11px;color:var(--dsw-alias-label-secondary, #8b8b8b);line-height:16px" data-ocgp="usage-freshness" aria-live="polite">更新于 {time}</div></div></div>
+	</div>
+	</div>
+</section><section class="case">
+	<header class="case-head"><h2>展开：凭据无效</h2><p>失败不瞎编：没有数字就只写状态，并给一个「去插件设置填写」的出口</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer;opacity:0.55" aria-label="未配置 API Key · 去插件设置" title="未配置 API Key · 去插件设置" data-ocgp="usage-ring-button" data-state="unconfigured"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		<div class="card-slot"><div id="ocgp-usage-card" role="group" aria-label="OpenCode Go 用量限制" data-ocgp="usage-card" style="position:static;z-index:2147483000;width:auto;max-width:calc(100vw - 16px);box-sizing:border-box;padding:8px;border-radius:var(--dsw-radius-lg, 12px);border:.5px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.28));box-shadow:var(--dsw-shadow-lv3, 0 10px 30px rgba(0, 0, 0, 0.32));font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary, CanvasText)"><div style="position:absolute;inset:0px;z-index:-1;border-radius:inherit;background:var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, #222));backdrop-filter:var(--dsw-menu-backdrop-filter, blur(20px));pointer-events:none" data-ocgp="usage-material" aria-hidden="true"></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:2px 8px 0"><span style="min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary, #8b8b8b)">OpenCode Go 用量限制</span><button type="button" style="flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0px;border:0px;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" title="在控制台打开" aria-label="在控制台打开" data-ocgp="usage-console"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9.5 3h3.5v3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L7.5 8.5" stroke-linecap="round"><path d="M12 9.8V13H3V4h3.2" stroke-linecap="round" stroke-linejoin="round"></svg></button></div><div style="display:grid;grid-template-columns:minmax(0, 1fr) auto auto;column-gap:8px;row-gap:0px;align-items:baseline" role="table" data-ocgp="usage-grid"></div><div style="margin-top:4px;padding:0 8px 2px;font-size:11px;color:var(--dsw-alias-state-error-primary, #c95d5d);line-height:16px" data-ocgp="usage-freshness" aria-live="polite">凭据无效</div></div></div>
+	</div>
+	</div>
+</section><section class="case">
+	<header class="case-head"><h2>展开：读取中</h2><p>首次打开、尚未拿到数据</p></header>
+	<div class="shell">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="0 100" stroke="currentColor" stroke-opacity="0.3" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="0 100" stroke="currentColor" stroke-opacity="0.3" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		<div class="card-slot"><div id="ocgp-usage-card" role="group" aria-label="OpenCode Go 用量限制" data-ocgp="usage-card" style="position:static;z-index:2147483000;width:auto;max-width:calc(100vw - 16px);box-sizing:border-box;padding:8px;border-radius:var(--dsw-radius-lg, 12px);border:.5px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.28));box-shadow:var(--dsw-shadow-lv3, 0 10px 30px rgba(0, 0, 0, 0.32));font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary, CanvasText)"><div style="position:absolute;inset:0px;z-index:-1;border-radius:inherit;background:var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, #222));backdrop-filter:var(--dsw-menu-backdrop-filter, blur(20px));pointer-events:none" data-ocgp="usage-material" aria-hidden="true"></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:2px 8px 0"><span style="min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary, #8b8b8b)">OpenCode Go 用量限制</span><button type="button" style="flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0px;border:0px;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" title="在控制台打开" aria-label="在控制台打开" data-ocgp="usage-console"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9.5 3h3.5v3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L7.5 8.5" stroke-linecap="round"><path d="M12 9.8V13H3V4h3.2" stroke-linecap="round" stroke-linejoin="round"></svg></button></div><div style="display:grid;grid-template-columns:minmax(0, 1fr) auto auto;column-gap:8px;row-gap:0px;align-items:baseline" role="table" data-ocgp="usage-grid"></div><div style="margin-top:4px;padding:0 8px 2px;font-size:11px;color:var(--dsw-alias-state-error-primary, #c95d5d);line-height:16px" data-ocgp="usage-freshness" aria-live="polite">正在读取用量…</div></div></div>
+	</div>
+	</div>
+</section></div>
+
+	<h2 class="section-title">手机宽度（390px）：菜单被挤窄时的样子</h2>
+	<p class="lede lede--tight">
+		DSH 的 Web shell 没有宽度断点，手机上是"整块桌面布局被挤窄"。这里按 390px 视口 + 260px 菜单渲染同一组件，
+		检查标签截断、百分比与时间是否还在一行、以及触屏下刷新图标是否可见。
+	</p>
+	<div class="grid grid--phone"><section class="case case--mobile">
+	<header class="case-head"><h2>手机 · 折叠</h2><p>390px 视口、260px 菜单：名称不换行，读数靠右</p></header>
+	<div class="shell shell--mobile">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 80% · 周 12% · 月 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section><section class="case case--mobile">
+	<header class="case-head"><h2>手机 · 展开（中文）</h2><p>标签 / 百分比 / 时间仍在一条线上</p></header>
+	<div class="shell shell--mobile">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="OpenCode Go 用量限制: OpenCode Go · 5h 80% · 周 12% · 月 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		<div class="card-slot"><div id="ocgp-usage-card" role="group" aria-label="OpenCode Go 用量限制" data-ocgp="usage-card" style="position:static;z-index:2147483000;width:auto;max-width:calc(100vw - 16px);box-sizing:border-box;padding:8px;border-radius:var(--dsw-radius-lg, 12px);border:.5px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.28));box-shadow:var(--dsw-shadow-lv3, 0 10px 30px rgba(0, 0, 0, 0.32));font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary, CanvasText)"><div style="position:absolute;inset:0px;z-index:-1;border-radius:inherit;background:var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, #222));backdrop-filter:var(--dsw-menu-backdrop-filter, blur(20px));pointer-events:none" data-ocgp="usage-material" aria-hidden="true"></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:2px 8px 0"><span style="min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary, #8b8b8b)">OpenCode Go 用量限制</span><button type="button" style="flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0px;border:0px;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" title="在控制台打开" aria-label="在控制台打开" data-ocgp="usage-console"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9.5 3h3.5v3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L7.5 8.5" stroke-linecap="round"><path d="M12 9.8V13H3V4h3.2" stroke-linecap="round" stroke-linejoin="round"></svg></button></div><div style="display:grid;grid-template-columns:minmax(0, 1fr) auto auto;column-gap:8px;row-gap:0px;align-items:baseline" role="table" data-ocgp="usage-grid"><div style="display:contents" role="row" data-window="rolling" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="5 小时">5 小时</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">20%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/11/4 05:06:55">即将重置</span></div><div style="display:contents" role="row" data-window="weekly" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每周">每周</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">88%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/11/9 08:00:00">11月9日</span></div><div style="display:contents" role="row" data-window="monthly" data-state="ok"><span role="cell" style="padding:4px 8px;min-width:0px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary, CanvasText)" dir="auto" title="每月">每月</span><span role="cell" aria-label="已用 {percent}" style="padding:4px 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary, CanvasText);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">46%</span><span role="cell" style="padding:4px 8px;font-size:12px;color:var(--dsw-alias-label-secondary, #8b8b8b);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap" title="2026/12/3 21:15:46">12月3日</span></div></div><div style="margin-top:4px;padding:0 8px 2px;font-size:11px;color:var(--dsw-alias-label-secondary, #8b8b8b);line-height:16px" data-ocgp="usage-freshness" aria-live="polite">更新于 {time}</div></div></div>
+	</div>
+	</div>
+</section><section class="case case--mobile">
+	<header class="case-head"><h2>手机 · 英文</h2><p>Weekly / Monthly 更长，仍不挤掉数字</p></header>
+	<div class="shell shell--mobile">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="OpenCode Go limits: OpenCode Go · 5h 80% · wk 12% · mo 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section><section class="case case--mobile">
+	<header class="case-head"><h2>手机 · 长词语言（德）</h2><p>标签该截断就截断；百分比与时间永不截断</p></header>
+	<div class="shell shell--mobile">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="Nutzungsgrenzen: OpenCode Go · 5 Std. 80% · Woche 12% · Monat 54%" data-ocgp="usage-ring-button" data-state="ok"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" pathLength="100" stroke-dasharray="80 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="transparent" stroke-width="12"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" stroke-linecap="round"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" pathLength="100" stroke-dasharray="12 100" stroke="currentColor" stroke-opacity="1" stroke-width="3.2" stroke-linecap="round" style="transition:stroke-width .12s ease"><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="transparent" stroke-width="12"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section><section class="case case--mobile">
+	<header class="case-head"><h2>手机 · 从右到左（阿）</h2><p>RTL 语言：标签镜像、数字仍在自己的列里</p></header>
+	<div class="shell shell--mobile">
+		<div class="sidebar">
+			<div class="sessions">
+				<div class="session"><span class="session-title">未分组</span></div>
+				<div class="session"><span class="session-title">提示词调整</span><span class="session-time">20小时</span></div>
+				<div class="session"><span class="session-title">打个招呼试试看</span><span class="session-time">18小时</span></div>
+			</div>
+			<div class="session remote"><span class="remote-icon">▢</span><span>Remote</span></div>
+			<div class="foot">
+				<span class="avatar"></span>
+				<span class="account-name">余执</span>
+				<span class="ring-slot"><button type="button" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0px;border:0px;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary, #8b8b8b);cursor:pointer;opacity:0.55" aria-expanded="true" aria-controls="ocgp-usage-card" aria-label="حدود الاستهلاك: OpenCode Go · ٥ س 88% · أسبوع 0% · شهر 54%" data-ocgp="usage-ring-button" data-state="empty"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" data-ocgp="usage-ring" style="overflow:visible"><g><path d="M4.4 13.1 A12 12 0 0 1 27.6 13.1" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g><path d="M27.6 18.9 A12 12 0 0 1 4.4 18.9" fill="none" stroke="currentColor" stroke-opacity="0.24" stroke-dasharray="2 4" stroke-width="3.2" stroke-linecap="round"></g><g transform="translate(10 10) scale(0.75)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="miter" aria-hidden="true"><rect x="4" y="3" width="8" height="10"></rect><rect x="6" y="7" width="4" height="4" fill="currentColor" stroke="none"></rect></svg></g></svg></button></span>
+			</div>
+		</div>
+		
+	</div>
+	</div>
+</section></div>
+	<button class="theme-toggle" type="button" id="theme-toggle">切换深色 / 浅色</button>
+	<script>
+		// ?theme=light (or dark) picks a scheme for screenshots; the button flips it.
+		const params = new URLSearchParams(location.search);
+		if (params.get("theme") === "light" || params.get("theme") === "dark") {
+			document.documentElement.dataset.theme = params.get("theme");
+		}
+		document.getElementById("theme-toggle").addEventListener("click", () => {
+			const root = document.documentElement;
+			root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+		});
+	</script>
+</body>
+</html>
