@@ -156,7 +156,7 @@ The card's **Show plan usage in the sidebar** switch controls a footer widget (t
 - expanded sidebar: one progress bar per quota window — rolling (5h), weekly, monthly — each with a countdown to its reset (hover for the exact local time) and color that shifts at 70% and 90%;
 - collapsed sidebar: a compact monthly-percentage badge;
 - `/opencode-go-plus-usage` prints the same numbers in a conversation;
-- the numbers are the gateway's own (`GET {base}/v1/usage`), proxied host-side with a 60-second cache, so the API key never reaches the browser;
+- the numbers are the gateway's own (`GET {base}/v1/usage`), proxied host-side with a 60-second cache, so the API key never reaches the browser; the widget's **Refresh** forces a fresh read (POST bypasses the cache), while the minute-long background poll stays cached so any number of open tabs costs the gateway one call a minute;
 - switching the box off hides the widget **and** stops the background requests — the host endpoint then answers `{ disabled: true }` without touching the gateway. The `/opencode-go-plus-usage` command still works: the switch governs the widget, not the data.
 
 ## Config reference

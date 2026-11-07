@@ -2370,3 +2370,45 @@ test("the usage dictionaries stay aligned across languages", async () => {
 		assert.ok(zhKeys.includes(key), `missing ${key}`);
 	}
 });
+
+test("a forced POST re-reads the gateway; the background GET stays cached", async (t) => {
+	let gatewayCalls = 0;
+	t.mock.method(globalThis, "fetch", async (url) => {
+		if (String(url).includes("/v1/usage")) {
+			gatewayCalls += 1;
+			return { ok: true, status: 200, headers: new Map(), async json() { return USAGE_GATEWAY_BODY; } };
+		}
+		return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return ""; } };
+	});
+	const { routes } = host();
+	const call = async (method) => {
+		const res = response();
+		await routes.get("/dsh-opencode-go-plus/usage").handler({ method }, res);
+		return { res, body: JSON.parse(res.body) };
+	};
+	const first = await call("GET");
+	assert.equal(first.body.cached, false);
+	// the Refresh button POSTs: same numbers from a cache would make it a lie
+	const forced = await call("POST");
+	assert.equal(forced.body.cached, false);
+	assert.equal(gatewayCalls, 2);
+	// the forced read refreshes the cache the polls keep reusing
+	const polled = await call("GET");
+	assert.equal(polled.body.cached, true);
+	assert.equal(gatewayCalls, 2);
+});
+
+test("the widget's Refresh button forces a fresh host read", async () => {
+	const pair = await mountUsagePair();
+	try {
+		const refresh = findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw-refresh")[0];
+		assert.ok(refresh, "the expanded widget offers a manual refresh");
+		pair.calls.length = 0;
+		refresh.props.onClick();
+		await settle();
+		const usageCall = pair.calls.find((call) => call.url.endsWith("/usage"));
+		assert.equal(usageCall?.method, "POST", "a pressed Refresh must bypass the host cache");
+	} finally {
+		pair.dispose();
+	}
+});
