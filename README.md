@@ -66,6 +66,7 @@ That is why models on different protocols cannot share an `llm-pi-ai` route: you
 - **One route for every protocol** — no second route, no per-model bookkeeping.
 - **No DSH files patched.** The gateway rejects requests without `x-opencode-session` (HTTP 400); the adapter sends the real session id itself, so there is no `fetch` wrapper to install and nothing for an upgrade to overwrite.
 - **One card for everything** — gateway URL, API key, a connection test that actually validates the key, and the enabled-model list with search, filters, select-all/invert and a visible unsaved-changes state.
+- **Plan usage in the sidebar** — rolling (5h) / weekly / monthly quota bars at the bottom of the sidebar, the same slot the standalone usage plugin used, plus a `/opencode-go-plus-usage` command. Switched off from the card, which then makes no background quota request at all.
 - **Duplicate-route detection.** If another configured route resolves to the same gateway — typically `opencode-go` added through the built-in adapter — every shared model appears twice in the picker. The card detects that by endpoint and removes the redundant route in one click.
 - **Bilingual** — the Plugin Manager description, card and capability labels in the picker follow the harness language.
 
@@ -73,13 +74,14 @@ That is why models on different protocols cannot share an `llm-pi-ai` route: you
 
 ```text
 settings: dsh-opencode-go-plus          the plugin's own namespace
-  ├── providerRoute / baseURL / apiKeyEnv / modelSource
+  ├── providerRoute / baseURL / apiKeyEnv / modelSource / showUsage
   ├── retries / timeoutMs / defaultContextWindow / defaultMaxTokens
   └── models: [{ id, name?, contextWindow?, maxTokens?, input?, reasoning?, efforts?, api? }]
 
 credentials: the apiKeyEnv reference (written by the card, never exposed to the browser)
 
 ctx.llm.registerAdapter([providerRoute], OpenCodeGoAdapter)
+GET /dsh-opencode-go-plus/usage          same-origin quota proxy (sidebar widget)
 ```
 
 The plugin registers only an adapter. It deliberately stays out of DSH's configurable-provider directory — see [Troubleshooting](#troubleshooting).
@@ -130,6 +132,7 @@ Open **Settings → Plugins → Plugin configuration → "OpenCode GO Plus"**:
 | Search + filter | Find by id or name; combine all / enabled / disabled with a Multimodal filter. Available once the list is editable. |
 | Select all / invert / clear | Bulk edits apply **only to the visible rows**, so a search narrows what they affect. |
 | Enable selected / Disable all | Writes exactly the checked ids. Unchecking everything is legal and disables every model. |
+| Show plan usage in the sidebar | Live switch (no Save needed): the quota widget appears or disappears in the sidebar footer at once, and the setting persists itself. |
 
 The model picker shows this provider as **OpenCode GO Plus**, distinct from the official `OpenCode GO` route.
 
@@ -146,6 +149,16 @@ Either way, the card offers **Remove these models and save**, which commits the 
 
 In a conversation, `/opencode-go-plus-refresh` performs a full mirror sync.
 
+### Plan usage
+
+The card's **Show plan usage in the sidebar** switch controls a footer widget (the `sidebar.footer.action` slot — the same place the standalone `dsh-opencode-go-usage` plugin drew, now merged in):
+
+- expanded sidebar: one progress bar per quota window — rolling (5h), weekly, monthly — each with a countdown to its reset (hover for the exact local time) and color that shifts at 70% and 90%;
+- collapsed sidebar: a compact monthly-percentage badge;
+- `/opencode-go-plus-usage` prints the same numbers in a conversation;
+- the numbers are the gateway's own (`GET {base}/v1/usage`), proxied host-side with a 60-second cache, so the API key never reaches the browser;
+- switching the box off hides the widget **and** stops the background requests — the host endpoint then answers `{ disabled: true }` without touching the gateway. The `/opencode-go-plus-usage` command still works: the switch governs the widget, not the data.
+
 ## Config reference
 
 Namespace `dsh-opencode-go-plus` in `~/.dsh/settings.yaml` (or via the card):
@@ -161,6 +174,7 @@ Namespace `dsh-opencode-go-plus` in `~/.dsh/settings.yaml` (or via the card):
 | `streamTimeoutMs` | `300000` | per-request timeout for a **chat** call. Set explicitly because the Anthropic SDK otherwise applies its own 10-minute default, so a stalled connection hangs the turn instead of failing into the retry path |
 | `defaultContextWindow` | `262144` | context window for a model the catalog does not size |
 | `defaultMaxTokens` | `32768` | **request** output cap (not the model's capability) |
+| `showUsage` | `true` | show the plan-usage widget in the sidebar footer; `false` also stops all background quota requests |
 | `models` | `[]` | the enabled list; meaning depends on `modelSource` |
 
 `modelSource` disambiguates an empty list, so that unchecking every model is not read as "nothing chosen yet":

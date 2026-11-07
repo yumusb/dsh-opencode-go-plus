@@ -1144,36 +1144,100 @@ test("models-check probes every enabled model and separates retired from blocked
  * a dispatched event's effect on the rendered tree can be asserted directly.
  */
 function createCardRuntime() {
-	const state = { states: [], cursor: 0, effects: [], mounted: false, tree: null, component: null };
-	const render = () => {
-		state.cursor = 0;
-		state.tree = state.component();
-		return state.tree;
+	/** One hook-state entry per mounted component, like React's per-fiber slots. */
+	const entries = [];
+	const byComponent = new Map();
+	/** The entry currently rendering, so hooks bind to the right component. */
+	let current = null;
+	const sameDeps = (left, right) => left === undefined || right === undefined
+		? left === right
+		: left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
+	/** Run newly scheduled effects; re-run ones whose deps changed, like React. */
+	const runEffects = (entry) => {
+		for (let slot = 0; slot < entry.pending.length; slot++) {
+			const next = entry.pending[slot];
+			if (next === undefined) continue;
+			const previous = entry.effectSlots[slot];
+			if (previous !== undefined && sameDeps(previous.deps, next.deps)) continue;
+			if (typeof previous?.cleanup === "function") previous.cleanup();
+			const cleanup = next.fn();
+			entry.effectSlots[slot] = { deps: next.deps, cleanup };
+		}
+		entry.pending = [];
+	};
+	const render = (entry) => {
+		const previous = current;
+		current = entry;
+		entry.cursor = 0;
+		entry.pending = [];
+		entry.tree = entry.component(entry.props);
+		current = previous;
+		runEffects(entry);
+		return entry.tree;
 	};
 	const react = {
 		useState: (init) => {
-			const index = state.cursor++;
-			if (index >= state.states.length) state.states[index] = typeof init === "function" ? init() : init;
-			return [state.states[index], (next) => {
-				state.states[index] = typeof next === "function" ? next(state.states[index]) : next;
-				render();
+			const entry = current;
+			const index = entry.cursor++;
+			if (index >= entry.states.length) entry.states[index] = typeof init === "function" ? init() : init;
+			return [entry.states[index], (next) => {
+				entry.states[index] = typeof next === "function" ? next(entry.states[index]) : next;
+				// Re-render only this component: the card flipping its usage switch
+				// must not look like a state change of the sidebar widget, and vice
+				// versa — that is what makes the two-component signal test honest.
+				if (entry.mounted) render(entry);
 			}];
 		},
-		useEffect: (fn) => { if (!state.mounted) state.effects.push(fn); },
+		// The usage widget keeps a bounded-retry counter here; identity across
+		// renders is what makes it a counter rather than a per-render reset.
+		useRef: (init) => {
+			const entry = current;
+			const index = entry.cursor++;
+			if (index >= entry.states.length) entry.states[index] = { current: typeof init === "function" ? init() : init };
+			return entry.states[index];
+		},
+		// Slot-indexed effect state with dependency checks, so the widget's
+		// `[stamp]` poll effect re-runs on a toggle exactly like React would.
+		useEffect: (fn, deps) => {
+			const entry = current;
+			const slot = entry.cursor++;
+			entry.pending[slot] = { fn, deps };
+		},
 		useCallback: (fn) => fn
 	};
 	const jsx = (type, props) => ({ type, props: props || {} });
 	return {
 		react,
 		jsx,
-		/** Render once, then run the mount effects (which kick off the loads). */
-		mount(component) {
-			state.component = component;
-			render();
-			state.mounted = true;
-			for (const fn of state.effects) fn();
+		/**
+		 * Render a component (running its effects) and return its entry — so one
+		 * runtime can host the settings card AND the sidebar widget and a test can
+		 * inspect each tree separately. Mounting the same component again
+		 * re-renders the SAME entry, as React does when props change.
+		 */
+		mount(component, props) {
+			let entry = byComponent.get(component);
+			if (entry === undefined) {
+				entry = { states: [], cursor: 0, pending: [], effectSlots: [], mounted: false, tree: null, component, props };
+				byComponent.set(component, entry);
+				entries.push(entry);
+			}
+			entry.props = props;
+			render(entry);
+			entry.mounted = true;
+			return entry;
 		},
-		get tree() { return state.tree; }
+		/** Run every cleanup (what unmounting means for this runtime). */
+		unmount() {
+			for (const entry of entries) {
+				for (const slot of entry.effectSlots) {
+					if (typeof slot?.cleanup === "function") slot.cleanup();
+				}
+				entry.mounted = false;
+			}
+		},
+		/** The tree existing tests drive: the first mounted component. */
+		get tree() { return entries.length > 0 ? entries[0].tree : null; }
 	};
 }
 
@@ -1261,7 +1325,8 @@ async function mountCardWithCandidates(data) {
 		if (url.endsWith("/config")) {
 			return {
 				ok: true, baseURL: "https://example.test/v1",
-				apiKeyEnv: "OPENCODE_GO_API_KEY", keyConfigured: true, modelSource: "selected"
+				apiKeyEnv: "OPENCODE_GO_API_KEY", keyConfigured: true, modelSource: "selected",
+				showUsage: true
 			};
 		}
 		// echo the committed ids so a test can assert exactly what was written,
@@ -1298,20 +1363,25 @@ async function mountCardWithCandidates(data) {
 		// the runtime must exist before the factory captures its hooks
 		const card = createCardRuntime();
 		const plugin = registration.factory((name) => name === "react" ? card.react : { jsx: card.jsx, jsxs: card.jsx });
-		let Component = null;
+		/** Every slot registration, keyed by slot name. */
+		const slots = new Map();
 		plugin.apply({
 			effect(run) { return run(); },
 			locale: localeStub(makeTranslator(plugin.dictionaries)),
 			slots: {
 				inject(_name, run) { return run(); },
-				register(_options, component) { Component = component; return () => {}; }
+				register(options, component) { slots.set(options.name, { options, component }); return () => {}; }
 			}
 		});
-		card.mount(Component);
+		// The bundle also registers the sidebar usage widget; the card tests have
+		// to mount the configuration card, which the current DSH renders through
+		// `plugins.bundle.config`.
+		card.mount(slots.get("plugins.bundle.config").component, { t: makeTranslator(plugin.dictionaries) });
 		await settle();
 		// The mount effect loads the live list, so the card is fully populated
 		// without any button press — that is the point of merging the routes.
 		card.calls = calls;
+		card.slots = slots;
 		// the removal POST fires after this helper returns, so the caller
 		// restores the mock itself via card.restoreFetch() once done asserting
 		card.restoreFetch = () => { globalThis.fetch = previousFetch; };
@@ -1592,6 +1662,12 @@ test("multimodal filter combines with status and bulk selection", async () => {
 	]);
 });
 
+/** Model-row checkboxes only — the card also renders the usage toggle. */
+function rowCheckboxes(tree) {
+	return findAll(tree, (node) => node.type === "input" && node.props.type === "checkbox"
+		&& String(node.props.id ?? "").startsWith("ocgp-cand-"));
+}
+
 test("unsaved changes are surfaced and can be discarded", async () => {
 	const card = await mountCardWithCandidates({ candidates: CANDIDATES, configured: ["glm-5.3-flash", "omen-alpha"] });
 	// nothing changed yet: no commit prompt, no discard affordance
@@ -1599,7 +1675,7 @@ test("unsaved changes are surfaced and can be discarded", async () => {
 	assert.equal(buttonByLabel(card.tree, "Enable selected (2)").props.disabled, true);
 
 	// toggle one row -> dirty
-	const boxes = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox");
+	const boxes = rowCheckboxes(card.tree);
 	boxes[0].props.onChange();
 	assert.equal(buttonByLabel(card.tree, "Discard changes") !== undefined, true);
 	assert.equal(buttonByLabel(card.tree, "Enable selected (1)").props.disabled, false);
@@ -1637,21 +1713,23 @@ test("the card renders with the connection and model controls", async () => {
 	// would be exercised against `undefined` state that React never produces
 	const reactStub = {
 		useState: (init) => [typeof init === "function" ? init() : init, () => {}],
+		useRef: (init) => ({ current: typeof init === "function" ? init() : init }),
 		useEffect: () => {},
 		useCallback: (fn) => fn
 	};
 	const jsx = (type, props) => ({ type, props: props || {} });
 	const plugin = registration.factory((name) => name === "react" ? reactStub : { jsx, jsxs: jsx });
-	let mounted = null;
+	/** Every slot registration, keyed by slot name. */
+	const slots = new Map();
 	plugin.apply({
 		effect(run) { return run(); },
 		locale: localeStub(makeTranslator(plugin.dictionaries)),
 		slots: {
 			inject(_name, run) { return run(); },
-			register(options, component) { mounted = { options, component }; return () => {}; }
+			register(options, component) { slots.set(options.name, { options, component }); return () => {}; }
 		}
 	});
-	const tree = mounted.component(); // throws if the component body is broken
+	const tree = slots.get("plugins.bundle.config").component({ t: makeTranslator(plugin.dictionaries) }); // throws if the component body is broken
 	const inputs = [];
 	const buttons = [];
 	const walk = (node) => {
@@ -1662,7 +1740,7 @@ test("the card renders with the connection and model controls", async () => {
 		for (const value of Object.values(node.props || {})) walk(value);
 	};
 	walk(tree);
-	assert.deepEqual(inputs, ["Gateway URL", "API key"]);
+	assert.deepEqual(inputs, ["Gateway URL", "API key", "Show plan usage in the sidebar"]);
 	// the apply button only appears once candidates are fetched
 	assert.deepEqual(buttons, ["Save", "Test connection", "Refresh list", "Check model availability"]);
 	// and the line that answers "must I save before testing?"
@@ -1714,7 +1792,7 @@ test("the card opens with the whole live list already loaded", async () => {
 		}
 
 		// and it is editable immediately: the served two are checked
-		const boxes = findAll(card.tree, (node) => node.type === "input" && node.props.type === "checkbox");
+		const boxes = rowCheckboxes(card.tree);
 		assert.equal(boxes.filter((b) => b.props.checked).length, 2, "only the served models are checked");
 		assert.ok(buttonByLabel(card.tree, "Enable selected (2)"), "the commit control is present from the start");
 		assert.ok(buttonByLabel(card.tree, "Refresh list"), "reloading is still available");
@@ -1903,13 +1981,392 @@ test("client bundles register legacy and current DSH plugin configuration cards"
 			register(options, component) { registrations.push({ options, component }); return () => {}; }
 		}
 	});
-	assert.deepEqual(injected, ["settings.plugin.item", "plugins.bundle.config"]);
+	assert.deepEqual(injected, ["settings.plugin.item", "plugins.bundle.config", "sidebar.footer.action"]);
 	assert.deepEqual(registrations.map(({ options }) => ({
 		name: options.name,
 		key: options.key,
+		id: options.id,
 		locale: options.locale
 	})), [
-		{ name: "settings.plugin.item", key: "dsh-opencode-go-plus", locale: undefined },
-		{ name: "plugins.bundle.config", key: "dsh-opencode-go-plus", locale: "dsh-opencode-go-plus" }
+		{ name: "settings.plugin.item", key: "dsh-opencode-go-plus", id: undefined, locale: undefined },
+		{ name: "plugins.bundle.config", key: "dsh-opencode-go-plus", id: undefined, locale: "dsh-opencode-go-plus" },
+		{ name: "sidebar.footer.action", key: undefined, id: "dsh-opencode-go-plus", locale: "dsh-opencode-go-plus" }
 	]);
+});
+
+// ── plan usage (merged from dsh-opencode-go-usage) ─────────────────────────
+
+/** One gateway `/v1/usage` body, in the shape the endpoint publishes. */
+const USAGE_GATEWAY_BODY = {
+	usage: {
+		rolling: { status: "ok", percent: 12, resetsAt: "2026-08-14T07:51:13Z" },
+		weekly: { status: "ok", percent: 4, resetsAt: "2026-08-17T00:00:00Z" },
+		monthly: { status: "ok", percent: 22, resetsAt: "2026-08-21T13:05:13Z" }
+	}
+};
+
+test("the usage endpoint follows the same version-segment rule as the chat wires", async () => {
+	const { usageEndpoint } = await import("../lib/usage.js");
+	// stored default (no version) and pasted wire base (`/v1`) both work
+	assert.equal(usageEndpoint("https://opencode.ai/zen/go"), "https://opencode.ai/zen/go/v1/usage");
+	assert.equal(usageEndpoint("https://relay.example.net/v1/"), "https://relay.example.net/v1/usage");
+	assert.equal(usageEndpoint("https://relay.example.net/v2"), "https://relay.example.net/v2/usage");
+});
+
+test("usage normalization keeps the gateway percentages and orders the windows", async () => {
+	const { normalizeUsagePayload } = await import("../lib/usage.js");
+	const view = normalizeUsagePayload(USAGE_GATEWAY_BODY);
+	// shortest window first; the monthly pool resets last, so it reads last
+	assert.deepEqual(view.windows.map((window) => window.id), ["rolling", "weekly", "monthly"]);
+	assert.deepEqual(view.windows[0], {
+		id: "rolling", label: "rolling", percent: 12, status: "ok", resetsAt: "2026-08-14T07:51:13.000Z"
+	});
+	// a bare window map (the earlier response shape) normalizes identically
+	assert.deepEqual(normalizeUsagePayload({ weekly: { status: "ok", percent: 4 } }).windows.map((w) => w.id), ["weekly"]);
+	// unknown windows are appended, so a gateway-added window shows up without
+	// a plugin release; garbage and a missing percent are dropped, not 0%
+	const extended = normalizeUsagePayload({
+		usage: {
+			monthly: { status: "ok", percent: 10 },
+			daily: { status: "ok", percent: 50 },
+			broken: { status: "ok" },
+			empty: null
+		}
+	});
+	assert.deepEqual(extended.windows.map((window) => window.id), ["monthly", "daily"]);
+	// clamped and rounded for display: relay floats never render 133% or 33.333333%
+	assert.equal(normalizeUsagePayload({ usage: { rolling: { percent: 133.333333 } } }).windows[0].percent, 100);
+	assert.equal(normalizeUsagePayload({ usage: { rolling: { percent: "33.333333" } } }).windows[0].percent, 33.33);
+	// `resetsAt: 0` is "no reset scheduled", not the Unix epoch
+	assert.equal(normalizeUsagePayload({ usage: { rolling: { percent: 1, resetsAt: 0 } } }).windows[0].resetsAt, null);
+});
+
+test("showUsage is a schema field with an on-by-default boolean", () => {
+	assert.equal(Config({}).showUsage, true);
+	assert.equal(Config({ showUsage: false }).showUsage, false);
+	assert.deepEqual(Config["~standard"].validate({ showUsage: "yes" }).issues[0].path, ["showUsage"]);
+});
+
+test("usage route proxies the gateway and keeps the key out of the browser", async (t) => {
+	const seen = [];
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (String(url).includes("/v1/usage")) {
+			seen.push({ url: String(url), auth: init?.headers?.authorization });
+			return { ok: true, status: 200, headers: new Map(), async json() { return USAGE_GATEWAY_BODY; } };
+		}
+		return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return ""; } };
+	});
+	const { routes } = host();
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/usage").handler({ method: "GET" }, res);
+	assert.equal(res.statusCode, 200);
+	const body = JSON.parse(res.body);
+	assert.equal(body.ok, true);
+	assert.equal(body.disabled, undefined);
+	assert.deepEqual(body.windows.map((window) => window.id), ["rolling", "weekly", "monthly"]);
+	assert.equal(body.windows[2].percent, 22);
+	// the host authenticated with the stored credential, and the payload the
+	// browser receives must not contain it
+	assert.equal(seen[0].auth, "Bearer secret");
+	// the quota rides the CONFIGURED gateway (the stub's base already carries
+	// its version segment), never a hard-coded host
+	assert.equal(seen[0].url, "https://gateway.example.test/v1/usage");
+	assert.equal(res.body.includes("secret"), false);
+});
+
+test("the usage route caches one read per window, so tabs cannot hammer the gateway", async (t) => {
+	let gatewayCalls = 0;
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (String(url).includes("/v1/usage")) {
+			gatewayCalls += 1;
+			return { ok: true, status: 200, headers: new Map(), async json() { return USAGE_GATEWAY_BODY; } };
+		}
+		return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return ""; } };
+	});
+	const { routes } = host();
+	const first = response();
+	await routes.get("/dsh-opencode-go-plus/usage").handler({ method: "GET" }, first);
+	const second = response();
+	await routes.get("/dsh-opencode-go-plus/usage").handler({ method: "GET" }, second);
+	assert.equal(gatewayCalls, 1, "the second read within the cache window is served from the first");
+	assert.equal(JSON.parse(first.body).cached, false);
+	assert.equal(JSON.parse(second.body).cached, true);
+});
+
+test("the usage route is a hard off: no gateway call when showUsage is false", async (t) => {
+	let gatewayCalls = 0;
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (String(url).includes("/v1/usage")) gatewayCalls += 1;
+		return { ok: true, status: 200, headers: new Map(), async json() { return USAGE_GATEWAY_BODY; }, async text() { return ""; } };
+	});
+	const { routes, updates } = host();
+	// switch off through the same route the card uses…
+	const patch = response();
+	await routes.get("/dsh-opencode-go-plus/config").handler({
+		method: "POST",
+		on(ev, fn) {
+			if (ev === "data") fn(Buffer.from(JSON.stringify({ showUsage: false })));
+			if (ev === "end") fn();
+		}
+	}, patch);
+	assert.equal(JSON.parse(patch.body).showUsage, false);
+	assert.deepEqual(updates.at(-1).patch, { showUsage: false });
+	// …and the quota endpoint stops answering with data: it reports disabled
+	// and never touches the gateway, which is what makes the switch real.
+	const res = response();
+	await routes.get("/dsh-opencode-go-plus/usage").handler({ method: "GET" }, res);
+	assert.deepEqual(JSON.parse(res.body), { ok: true, disabled: true });
+	assert.equal(gatewayCalls, 0);
+});
+
+test("the usage route words credential, plan and gateway failures apart", async (t) => {
+	const fail = async (gateway) => {
+		t.mock.method(globalThis, "fetch", async (url) => {
+			if (String(url).includes("/v1/usage")) return gateway;
+			return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return ""; } };
+		});
+		const { routes } = host();
+		const res = response();
+		await routes.get("/dsh-opencode-go-plus/usage").handler({ method: "GET" }, res);
+		return { status: res.statusCode, body: JSON.parse(res.body) };
+	};
+	const auth = await fail({
+		ok: false, status: 401, headers: new Map(),
+		async text() { return JSON.stringify({ error: { type: "AuthError", message: "Invalid API key." } }); }
+	});
+	assert.equal(auth.status, 401);
+	assert.match(auth.body.error, /rejected the credential/);
+	const plan = await fail({
+		ok: false, status: 403, headers: new Map(),
+		async text() { return JSON.stringify({ error: { type: "EntitlementError", message: "no plan" } }); }
+	});
+	assert.equal(plan.status, 403);
+	assert.match(plan.body.error, /no active OpenCode GO plan/);
+	const outage = await fail({ ok: false, status: 503, headers: new Map(), async text() { return "unavailable"; } });
+	assert.equal(outage.status, 502);
+	assert.match(outage.body.error, /HTTP 503/);
+	// a 200 that is not the documented shape is a gateway problem, not 0% bars
+	const weird = await fail({ ok: true, status: 200, headers: new Map(), async json() { return { unexpected: true }; } });
+	assert.equal(weird.status, 502);
+	assert.match(weird.body.error, /no usable usage windows/);
+});
+
+test("the /opencode-go-plus-usage command prints the windows", async (t) => {
+	t.mock.method(globalThis, "fetch", async (url, init) => {
+		if (String(url).includes("/v1/usage")) {
+			return { ok: true, status: 200, headers: new Map(), async json() { return USAGE_GATEWAY_BODY; } };
+		}
+		return { ok: true, status: 200, headers: new Map(), async json() { return { data: [] }; }, async text() { return ""; } };
+	});
+	const { commands } = host();
+	const result = await commands.get("opencode-go-plus-usage").handler();
+	assert.equal(result.kind, "success");
+	assert.match(result.text, /Rolling \(5h\): 12%/);
+	assert.match(result.text, /Weekly: 4%/);
+	assert.match(result.text, /Monthly: 22%/);
+});
+
+/**
+ * Mount the settings card AND the sidebar widget from ONE bundle instance:
+ * the card's `showUsage` switch and the widget share a module-level signal, so
+ * the pair only behaves realistically when they come from the same vm.
+ * @param {{ windows?: Array<Record<string, unknown>>, wide?: boolean }} [options]
+ */
+async function mountUsagePair(options = {}) {
+	const windows = options.windows ?? [
+		{ id: "rolling", label: "rolling", percent: 12, status: "ok", resetsAt: null },
+		{ id: "weekly", label: "weekly", percent: 4, status: "ok", resetsAt: null },
+		{ id: "monthly", label: "monthly", percent: 22, status: "ok", resetsAt: "2026-08-21T13:05:13Z" }
+	];
+	const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
+	let registration;
+	const context = {
+		window: {
+			__ModuleLoader__: { load(value) { registration = value; } },
+			// the widget schedules a poll and a bounded retry; recording the
+			// callbacks is enough — the tests drive updates through setters
+			setInterval() { return 1; },
+			clearInterval() {},
+			setTimeout() { return 2; },
+			clearTimeout() {}
+		},
+		document: {
+			querySelector() { return {}; },
+			createElement() { return { dataset: {}, textContent: "" }; },
+			head: { appendChild() {} }
+		},
+		fetch: (...args) => globalThis.fetch(...args)
+	};
+	vm.runInNewContext(source, context);
+	/** The host's persisted switch; a config POST writes it like the real route. */
+	let serverShowUsage = true;
+	const calls = [];
+	const previousFetch = globalThis.fetch;
+	globalThis.fetch = async (url, init) => {
+		const path = String(url);
+		calls.push({ url: path, method: init?.method ?? "GET", body: init?.body });
+		if (path.endsWith("/config") && init?.method === "POST") {
+			const patch = JSON.parse(init.body);
+			if (typeof patch.showUsage === "boolean") serverShowUsage = patch.showUsage;
+		}
+		if (path.endsWith("/config")) {
+			return {
+				status: 200, ok: true,
+				json: async () => ({
+					ok: true, baseURL: "https://example.test/v1", apiKeyEnv: "OPENCODE_GO_API_KEY",
+					keyConfigured: true, modelSource: "selected", showUsage: serverShowUsage
+				})
+			};
+		}
+		if (path.endsWith("/usage")) {
+			if (!serverShowUsage) return { status: 200, ok: true, json: async () => ({ ok: true, disabled: true }) };
+			return { status: 200, ok: true, json: async () => ({ ok: true, windows }) };
+		}
+		if (path.endsWith("/models-info")) {
+			return {
+				status: 200, ok: true,
+				json: async () => ({
+					ok: true, provider: "opencode-go-plus", configured: 0, models: [],
+					modelSource: "selected", candidates: [], via: "https://example.test/v1/models"
+				})
+			};
+		}
+		return { status: 200, ok: true, json: async () => ({ ok: true }) };
+	};
+	const runtime = createCardRuntime();
+	const plugin = registration.factory((name) => name === "react" ? runtime.react : { jsx: runtime.jsx, jsxs: runtime.jsx });
+	const t = makeTranslator(plugin.dictionaries);
+	const slots = new Map();
+	plugin.apply({
+		effect(run) { return run(); },
+		locale: localeStub(t),
+		slots: {
+			inject(_name, run) { return run(); },
+			register(slotOptions, component) { slots.set(slotOptions.name, { options: slotOptions, component }); return () => {}; }
+		}
+	});
+	const card = runtime.mount(slots.get("plugins.bundle.config").component, { t });
+	const widget = runtime.mount(slots.get("sidebar.footer.action").component, { t, wide: options.wide !== false });
+	await settle();
+	return {
+		card, widget, calls,
+		/** The card's usage switch input, as rendered right now. */
+		usageToggle: () => findAll(card.tree, (node) => node.type === "input"
+			&& node.props["aria-label"] === "Show plan usage in the sidebar")[0],
+		/** The rendered row labels, e.g. "Rolling (5h) 12%". */
+		widgetRows: () => findAll(widget.tree, (node) => node.props?.className === "ocgp-uw-label")
+			.map((node) => [].concat(node.props.children)
+				.map((child) => (child && child.props ? child.props.children : child)).join(" ")),
+		dispose() { globalThis.fetch = previousFetch; runtime.unmount(); }
+	};
+}
+
+test("the sidebar widget draws one row per window with a countdown", async () => {
+	const pair = await mountUsagePair();
+	try {
+		const labels = pair.widgetRows();
+		// every window is a labelled progress row, shortest reset first
+		assert.deepEqual(labels, ["Rolling (5h) 12%", "Weekly 4%", "Monthly 22%"]);
+		// a reset instant reads as a countdown; the exact local date is one hover away
+		const hovers = findAll(pair.widget.tree, (node) => node.type === "span" && typeof node.props?.title === "string");
+		assert.equal(hovers.length, 1, "only the window with a reset schedules a countdown");
+		assert.match(hovers[0].props.children, /resets in/);
+		assert.match(hovers[0].props.title, /resets 8\/21/);
+		// three bars, colored through themed aliases
+		const fills = findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw-fill");
+		assert.equal(fills.length, 3);
+		assert.equal(fills[2].props.style.width, "22.0%");
+		assert.match(fills[2].props.style.background, /state-success/);
+	} finally {
+		pair.dispose();
+	}
+});
+
+test("a collapsed sidebar shows the monthly percentage as a compact badge", async () => {
+	const pair = await mountUsagePair({ wide: false });
+	try {
+		const rail = findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw-rail")[0];
+		assert.ok(rail, "the collapsed widget renders the percent badge");
+		assert.equal(rail.props.children, "22%", "the monthly window is what the badge reports");
+		assert.match(rail.props.title, /OpenCode GO monthly 22%/);
+	} finally {
+		pair.dispose();
+	}
+});
+
+test("the card's usage switch shows/hides the sidebar widget without a poll", async () => {
+	const pair = await mountUsagePair();
+	try {
+		// mounted with the saved switch on: the widget renders rows
+		assert.ok(findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw").length === 1);
+		assert.equal(pair.usageToggle().props.checked, true);
+
+		// flip off: hidden at once (no waiting for the 60 s poll), and persisted
+		pair.calls.length = 0;
+		pair.usageToggle().props.onChange({ target: { checked: false } });
+		await settle();
+		const hidden = pair.widget.tree;
+		assert.equal(hidden.type, "span");
+		assert.equal(hidden.props.style.display, "none", "an inert placeholder keeps the subscription alive");
+		const configCall = pair.calls.find((call) => call.url.endsWith("/config") && call.method === "POST");
+		assert.ok(configCall, "the switch persists itself");
+		assert.deepEqual(JSON.parse(configCall.body), { showUsage: false });
+		// hidden means no quota traffic at all while it stays off
+		assert.equal(pair.calls.filter((call) => call.url.endsWith("/usage")).length, 0);
+
+		// flip on: the host persists first, THEN the widget reappears and fetches.
+		// Announcing before the write would make the widget refetch against a
+		// still-disabled host and hide itself again — the exact user-visible bug.
+		pair.calls.length = 0;
+		pair.usageToggle().props.onChange({ target: { checked: true } });
+		await settle();
+		const order = pair.calls.map((call) => call.url);
+		const postId = order.findIndex((url) => url.endsWith("/config"));
+		const usageId = order.findIndex((url) => url.endsWith("/usage"));
+		assert.ok(postId !== -1 && usageId !== -1 && postId < usageId,
+			"the save must land before the widget polls");
+		assert.ok(findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw").length === 1,
+			"the widget comes back without a reload");
+		assert.equal(pair.usageToggle().props.checked, true);
+	} finally {
+		pair.dispose();
+	}
+});
+
+test("a failed usage-switch save reverts the switch instead of lying about it", async () => {
+	const pair = await mountUsagePair();
+	try {
+		const previousFetch = globalThis.fetch;
+		globalThis.fetch = async () => ({ status: 500, ok: false, json: async () => ({ ok: false, error: "disk full" }) });
+		try {
+			pair.usageToggle().props.onChange({ target: { checked: false } });
+			await settle();
+		} finally {
+			globalThis.fetch = previousFetch;
+		}
+		// the checkbox never claims a state the host refused
+		assert.equal(pair.usageToggle().props.checked, true);
+		// and the card says why
+		const errors = findAll(pair.card.tree, (node) => typeof node.props?.className === "string"
+			&& node.props.className.includes("ocgp-err"));
+		assert.ok(errors.some((node) => String(node.props.children).includes("disk full")));
+		// the widget was never hidden for the refused switch
+		assert.ok(findAll(pair.widget.tree, (node) => node.props?.className === "ocgp-uw").length === 1);
+	} finally {
+		pair.dispose();
+	}
+});
+
+test("the usage dictionaries stay aligned across languages", async () => {
+	const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
+	let registration;
+	vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { registration = value; } } }, document: { querySelector() { return {}; } } });
+	const dictionaries = registration.factory(() => ({})).dictionaries;
+	const zhKeys = Object.keys(dictionaries.zh);
+	const enKeys = Object.keys(dictionaries.en);
+	assert.deepEqual(enKeys.filter((key) => !zhKeys.includes(key)), [], "every English key needs a Chinese entry");
+	assert.deepEqual(zhKeys.filter((key) => !enKeys.includes(key)), [], "every Chinese key needs an English entry");
+	for (const key of ["usage.enable", "usage.hint", "usage.rolling", "usage.weekly", "usage.monthly", "usage.resetsIn", "usage.railTitle"]) {
+		assert.ok(zhKeys.includes(key), `missing ${key}`);
+	}
 });

@@ -128,6 +128,7 @@ dsh plugin --profile web add "$PWD"
 | 搜索 / 筛选 | 按 id 或名字找；按 全部 / 已启用 / 未启用 和“多模态”组合筛选。列表可编辑后才出现。 |
 | 全选 / 反选 / 清空 | **只对当前看得见的那些生效**。搜索完再点全选，不会把整张表都勾上。 |
 | 启用所选 / 停用全部 | 只写入勾上的 id。全都不勾也是正常状态，等于全部停用。 |
+| 在侧边栏显示套餐用量 | 即时开关（不用点保存）：侧边栏底部的用量组件立刻出现或消失，设置自己会存。 |
 
 模型选择器里这个 provider 叫 **OpenCode GO Plus**，和官方的 `OpenCode GO` 区分开。
 
@@ -144,6 +145,16 @@ dsh plugin --profile web add "$PWD"
 
 在对话里输入 `/opencode-go-plus-refresh` 可以全量同步一次。
 
+### 套餐用量
+
+卡片上的**「在侧边栏显示套餐用量」**开关控制一个侧边栏底部组件（`sidebar.footer.action` 槽位——原来独立用法插件 `dsh-opencode-go-usage` 画的位置，现已并进来）：
+
+- 侧边栏展开：每个额度窗口一条进度条——滚动（5h）、每周、月额度——各自带重置倒计时（悬停看精确本地时间），用量过 70% 变黄、过 90% 变红；
+- 侧边栏收起：一个月额度百分比的小徽标；
+- `/opencode-go-plus-usage` 在对话里打印同样的数字；
+- 数字来自网关本身（`GET {base}/v1/usage`），host 端同源代理 + 60 秒缓存，key 不进浏览器；
+- 关掉这个框**同时**停掉后台请求——host 端点会直接回 `{ disabled: true }`，一次网关调用都不发。`/opencode-go-plus-usage` 命令照常用：开关管的是组件，不是数据。
+
 ## 配置参考
 
 `~/.dsh/settings.yaml` 里的 `dsh-opencode-go-plus` 分节（用卡片改也行）：
@@ -159,6 +170,7 @@ dsh plugin --profile web add "$PWD"
 | `streamTimeoutMs` | `300000` | **聊天**请求的单次超时。必须显式设置：否则 Anthropic SDK 会用自己 10 分钟的默认值，连接卡住时整轮就一直挂着，而不是及时失败进入重试 |
 | `defaultContextWindow` | `262144` | 目录没写容量时用这个上下文窗口 |
 | `defaultMaxTokens` | `32768` | 每次**请求**要多少输出，不是模型能力 |
+| `showUsage` | `true` | 在侧边栏底部显示套餐用量组件；设为 `false` 后连后台用量请求都不发 |
 | `models` | `[]` | 启用清单，含义看 `modelSource` |
 
 `modelSource` 是为了区分空数组的两种意思，免得「全都不勾」被当成「还没选」：

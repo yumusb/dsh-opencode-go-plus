@@ -18,7 +18,7 @@ test("package publishes DSH-localized Plus metadata", async () => {
 	assert.ok(manifest.files.includes("assets/*.svg"));
 	assert.match(icon, /^<svg\b/);
 	assert.ok(Buffer.byteLength(icon, "utf8") <= 256 * 1024);
-	assert.equal(manifest.version, "1.1.3");
+	assert.equal(manifest.version, "1.2.0");
 	assert.equal(typeof manifest.description, "string");
 	assert.equal(manifest.engines.node, ">=22.19.0");
 	// DSH >= 0.2 decides from `engines.dsh` alone and ignores peerDependencies.
@@ -33,7 +33,7 @@ test("package publishes DSH-localized Plus metadata", async () => {
 		assert.equal(manifest.peerDependencies[peer], dshPeerRange);
 	}
 	assert.equal(en.meta.title, "OpenCode GO Plus");
-	assert.equal(zh.meta.description, "将 OpenCode GO 作为独立 LLM 提供商使用；可配置网关、凭据和启用的模型，不会改动 llm-pi-ai。");
+	assert.equal(zh.meta.description, "将 OpenCode GO 作为独立 LLM 提供商使用；可配置网关、凭据和启用的模型，并在侧边栏显示套餐用量，不会改动 llm-pi-ai。");
 	assert.match(import.meta.resolve("dsh-opencode-go-plus/locale/zh.json"), /locale\/zh\.json$/);
 	assert.match(readme, /## DSH compatibility/);
 	assert.match(readme, /`0\.1\.0-rc\.8`/);
