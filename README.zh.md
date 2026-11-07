@@ -152,6 +152,7 @@ dsh plugin --profile web add "$PWD"
 - 侧边栏展开：每个额度窗口一条进度条——滚动（5h）、每周、月额度——各自带重置倒计时（悬停看精确本地时间），用量过 70% 变黄、过 90% 变红；
 - 侧边栏收起：一个月额度百分比的小徽标；
 - `/opencode-go-plus-usage` 在对话里打印同样的数字；
+- 如果还装着独立的 `dsh-opencode-go-usage` 插件，**会看到两个用量条**——移除它（`dsh plugin --profile web remove dsh-opencode-go-usage`）。本插件完整覆盖它的功能，只有两处没有搬：npm 更新徽标，以及给 `llm-pi-ai` 路由补 `x-opencode-session` 的 fetch 包装——Plus 的适配器自己带这个头，本来就不需要。
 - 数字来自网关本身（`GET {base}/v1/usage`），host 端同源代理 + 60 秒缓存，key 不进浏览器；组件上的**刷新**会强制重读（POST 跳过缓存），后台轮询则走缓存——开多少个标签页，网关每分钟也只被调用一次；
 - 关掉这个框**同时**停掉后台请求——host 端点会直接回 `{ disabled: true }`，一次网关调用都不发。`/opencode-go-plus-usage` 命令照常用：开关管的是组件，不是数据。
 
